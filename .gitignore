@@ -1,0 +1,6 @@
+node_modules/
+.dart_tool/
+.flutter-plugins*
+.idea/
+*.lock
+pubspec.lock
