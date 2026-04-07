@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/providers/question_provider.dart';
-import '../../../data/models/question.dart';
 import '../../../core/theme/app_theme.dart';
 
 class PracticeScreen extends StatefulWidget {
@@ -184,13 +183,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
                 ...question.options.entries.map<Widget>((entry) {
                   final isSelected = result != null &&
                       entry.key.toUpperCase() ==
-                          question.answer.toUpperCase();
-                  final isWrong = result != null &&
-                      !result.isCorrect &&
-                      entry.key.toUpperCase() ==
-                          provider.currentQuestions[provider.currentIndex]
-                              .id
-                              .toString();
+                          result.selectedAnswer.toUpperCase();
 
                   Color? bgColor;
                   Color? borderColor;

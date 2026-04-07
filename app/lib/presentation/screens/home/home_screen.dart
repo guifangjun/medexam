@@ -22,9 +22,12 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+  String _examCategory = '执业资格';
 
-  final List<Widget> _screens = [
-    const _HomeTab(),
+  final List<String> _examCategories = ['执业资格', '初级职称', '中级职称', '高级职称'];
+
+  List<Widget> get _screens => [
+    _HomeTab(onPracticeTap: _goToPractice),
     const PracticeScreen(),
     const ExamScreen(),
     const _StudyTab(),
@@ -37,6 +40,10 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AuthProvider>().checkAuth();
     });
+  }
+
+  void _goToPractice() {
+    setState(() => _currentIndex = 1);
   }
 
   @override
@@ -55,8 +62,34 @@ class _HomeScreenState extends State<HomeScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('MedExam AI'),
+            title: Row(
+              children: [
+                PopupMenuButton<String>(
+                  initialValue: _examCategory,
+                  onSelected: (value) {
+                    setState(() => _examCategory = value);
+                    context.read<QuestionProvider>().setExamCategory(value);
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _examCategory,
+                        style: const TextStyle(fontSize: 18),
+                      ),
+                      const Icon(Icons.arrow_drop_down),
+                    ],
+                  ),
+                  itemBuilder: (context) => _examCategories
+                      .map((category) => PopupMenuItem(
+                            value: category,
+                            child: Text(category),
+                          ))
+                      .toList(),
+                ),
+              ],
             ),
+          ),
           body: _screens[_currentIndex],
           bottomNavigationBar: BottomNavigationBar(
             currentIndex: _currentIndex,
@@ -96,7 +129,9 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _HomeTab extends StatelessWidget {
-  const _HomeTab();
+  final VoidCallback onPracticeTap;
+
+  const _HomeTab({required this.onPracticeTap});
 
   @override
   Widget build(BuildContext context) {
@@ -121,7 +156,6 @@ class _HomeTab extends StatelessWidget {
             ],
           ),
         ),
-      ),
     );
   }
 
@@ -141,69 +175,83 @@ class _HomeTab extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Column(
+            Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.logout, size: 20),
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('确认退出'),
-                        content: const Text('确定要退出登录吗？'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            child: const Text('取消'),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.pop(ctx);
-                              context.read<AuthProvider>().logout();
-                            },
-                            child: const Text('确定'),
-                          ),
+                PopupMenuButton<String>(
+                  offset: const Offset(0, 50),
+                  onSelected: (value) {
+                    if (value == 'logout') {
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('确认退出'),
+                          content: const Text('确定要退出登录吗？'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text('取消'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                context.read<AuthProvider>().logout();
+                              },
+                              child: const Text('确定'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'logout',
+                      child: Row(
+                        children: [
+                          Icon(Icons.logout, size: 20),
+                          SizedBox(width: 8),
+                          Text('退出登录'),
                         ],
                       ),
-                    );
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(width: 8),
-            CircleAvatar(
-              radius: 30,
-              backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
-              child: Text(
-                user?.username.substring(0, 1).toUpperCase() ?? 'U',
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.primaryColor,
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '$greeting，${user?.fullName ?? user?.username ?? '同学'}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                    ),
+                  ],
+                  child: CircleAvatar(
+                    radius: 30,
+                    backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
+                    child: Text(
+                      user?.username.substring(0, 1).toUpperCase() ?? 'U',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.primaryColor,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '目标：${user?.targetExam ?? '执业医师'}',
-                    style: TextStyle(color: Colors.grey[600]),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$greeting，${user?.fullName ?? user?.username ?? '同学'}',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '目标：${user?.targetExam ?? '执业医师'}',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ],
         ),
@@ -283,7 +331,7 @@ class _HomeTab extends StatelessWidget {
                 icon: Icons.edit_note,
                 title: '章节练习',
                 color: AppTheme.primaryColor,
-                onTap: () {},
+                onTap: onPracticeTap,
               ),
             ),
             const SizedBox(width: 12),

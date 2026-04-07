@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../../../data/providers/study_provider.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/constants/api_constants.dart';
 
 class WrongScreen extends StatefulWidget {
   const WrongScreen({super.key});

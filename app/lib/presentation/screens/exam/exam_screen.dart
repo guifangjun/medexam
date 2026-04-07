@@ -20,7 +20,7 @@ class _ExamScreenState extends State<ExamScreen> {
       appBar: AppBar(
         title: const Text('模拟考试'),
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,6 +211,7 @@ class _ExamQuestionView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final question = provider.currentQuestion!;
+    final result = provider.lastResult;
 
     return Column(
       children: [
@@ -234,7 +235,9 @@ class _ExamQuestionView extends StatelessWidget {
                     Text(
                       question.questionType == 'single'
                           ? '单选题'
-                          : '多选题',
+                          : question.questionType == 'multi'
+                              ? '多选题'
+                              : '病例题',
                       style: TextStyle(color: Colors.grey[600]),
                     ),
                   ],
@@ -246,15 +249,110 @@ class _ExamQuestionView extends StatelessWidget {
                 ),
                 const SizedBox(height: 24),
                 ...question.options.entries.map((entry) {
+                  final isSelected = result != null &&
+                      entry.key.toUpperCase() ==
+                          result.selectedAnswer.toUpperCase();
+
+                  Color? bgColor;
+                  Color? borderColor;
+                  if (result != null) {
+                    if (entry.key.toUpperCase() ==
+                        result.correctAnswer.toUpperCase()) {
+                      bgColor = AppTheme.secondaryColor.withOpacity(0.1);
+                      borderColor = AppTheme.secondaryColor;
+                    } else if (isSelected && !result.isCorrect) {
+                      bgColor = AppTheme.errorColor.withOpacity(0.1);
+                      borderColor = AppTheme.errorColor;
+                    }
+                  }
+
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _OptionTile(
-                      label: entry.key,
-                      content: entry.value,
-                      onTap: () => provider.submitAnswer(entry.key),
+                    child: InkWell(
+                      onTap: result == null
+                          ? () => provider.submitAnswer(entry.key)
+                          : null,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: bgColor ?? Colors.white,
+                          border: Border.all(
+                            color: borderColor ?? Colors.grey.shade300,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: borderColor ?? AppTheme.primaryColor,
+                                  width: 2,
+                                ),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  entry.key,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: borderColor ?? AppTheme.primaryColor,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                entry.value,
+                                style: const TextStyle(height: 1.4),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   );
                 }),
+                // 解析
+                if (result != null && result.explanation != null) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.blue.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.lightbulb_outline,
+                                color: Colors.blue, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              '解析',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          result.explanation!,
+                          style: const TextStyle(height: 1.5),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -283,90 +381,24 @@ class _ExamQuestionView extends StatelessWidget {
               if (provider.currentIndex > 0) const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: provider.isLastQuestion
-                      ? () {
-                          // TODO: 提交考试
-                          Navigator.pop(context);
-                        }
-                      : () => provider.nextQuestion(),
-                  child: Text(provider.isLastQuestion ? '提交试卷' : '下一题'),
+                  onPressed: provider.isLastQuestion && result != null
+                      ? () => Navigator.pop(context)
+                      : result == null
+                          ? null
+                          : () => provider.nextQuestion(),
+                  child: Text(
+                    provider.isLastQuestion && result != null
+                        ? '完成考试'
+                        : result == null
+                            ? '请先作答'
+                            : '下一题',
+                  ),
                 ),
               ),
             ],
           ),
         ),
       ],
-    );
-  }
-}
-
-class _OptionTile extends StatefulWidget {
-  final String label;
-  final String content;
-  final VoidCallback onTap;
-
-  const _OptionTile({
-    required this.label,
-    required this.content,
-    required this.onTap,
-  });
-
-  @override
-  State<_OptionTile> createState() => _OptionTileState();
-}
-
-class _OptionTileState extends State<_OptionTile> {
-  bool _isSelected = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () {
-        setState(() => _isSelected = true);
-        widget.onTap();
-      },
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: _isSelected
-              ? AppTheme.primaryColor.withOpacity(0.1)
-              : Colors.white,
-          border: Border.all(
-            color: _isSelected ? AppTheme.primaryColor : Colors.grey.shade300,
-          ),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: _isSelected
-                      ? AppTheme.primaryColor
-                      : Colors.grey.shade400,
-                  width: 2,
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  widget.label,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color:
-                        _isSelected ? AppTheme.primaryColor : Colors.grey[700],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Text(widget.content)),
-          ],
-        ),
-      ),
     );
   }
 }

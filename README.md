@@ -115,6 +115,15 @@ flutter pub get
 flutter run
 ```
 
+#### 固定端口运行（推荐）
+
+```bash
+cd app
+flutter run -d chrome --web-port 51739
+```
+
+端口固定为 51739，浏览器访问 http://localhost:51739
+
 ## 配置 AI 模型
 
 在 `backend/.env` 中配置：

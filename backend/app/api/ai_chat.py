@@ -22,38 +22,46 @@ async def call_ai_model(messages: list) -> str:
     """调用国产大模型 API"""
     if not settings.AI_API_KEY:
         # Demo 模式：返回模拟回答
-        return "这是一个 AI 答疑演示。当前未配置 AI API，请配置智谱GLM/通义Qwen/文心ERNIE 的 API Key。"
+        return "这是一个 AI 答疑演示。当前未配置 AI API，请配置 SiliconFlow/智谱GLM/通义Qwen 的 API Key。\n\n免费方案：\n1. 注册 SiliconFlow (https://cloud.siliconflow.cn)\n2. 获取免费 API Key\n3. 在 .env 中配置 AI_API_KEY\n\n配置示例 (.env):\nAI_API_KEY=your-siliconflow-api-key\nAI_BASE_URL=https://api.siliconflow.cn/v1\nAI_MODEL=Qwen/Qwen2.5-7B-Instruct"
 
     headers = {
         "Authorization": f"Bearer {settings.AI_API_KEY}",
         "Content-Type": "application/json"
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         try:
-            if settings.AI_BASE_URL and "zhipu" in settings.AI_BASE_URL:
-                # 智谱 API
-                response = await client.post(
-                    f"{settings.AI_BASE_URL}/chat/completions",
-                    headers=headers,
-                    json={"model": settings.AI_MODEL, "messages": messages}
-                )
-            elif settings.AI_BASE_URL and "qwen" in settings.AI_BASE_URL:
-                # 通义 API
-                response = await client.post(
-                    f"{settings.AI_BASE_URL}/chat/completions",
-                    headers=headers,
-                    json={"model": settings.AI_MODEL, "messages": messages}
-                )
+            # 确定 API 端点
+            if settings.AI_BASE_URL:
+                base_url = settings.AI_BASE_URL.rstrip("/")
+            elif "zhipu" in settings.AI_MODEL.lower() or "glm" in settings.AI_MODEL.lower():
+                base_url = "https://open.bigmodel.cn/api/paas/v4"
             else:
-                # 默认智谱格式
-                response = await client.post(
-                    "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-                    headers=headers,
-                    json={"model": "glm-4", "messages": messages}
-                )
+                # 默认使用 SiliconFlow
+                base_url = "https://api.siliconflow.cn/v1"
+
+            # 构建请求
+            payload = {
+                "model": settings.AI_MODEL,
+                "messages": messages,
+                "stream": False
+            }
+
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json=payload
+            )
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+            resp_json = response.json()
+            # MiniMax 响应格式
+            if "choices" in resp_json and len(resp_json["choices"]) > 0:
+                return resp_json["choices"][0]["message"]["content"]
+            # 备用格式
+            elif "text" in resp_json:
+                return resp_json["text"]
+            else:
+                return str(resp_json)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"AI 服务调用失败: {str(e)}")
 

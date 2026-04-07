@@ -72,12 +72,14 @@ class QuestionSubmit {
 class SubmitResult {
   final bool isCorrect;
   final String correctAnswer;
+  final String selectedAnswer;  // 用户选择的答案
   final String? explanation;
   final String? wrongReason;
 
   SubmitResult({
     required this.isCorrect,
     required this.correctAnswer,
+    required this.selectedAnswer,
     this.explanation,
     this.wrongReason,
   });
@@ -86,6 +88,7 @@ class SubmitResult {
     return SubmitResult(
       isCorrect: json['is_correct'],
       correctAnswer: json['correct_answer'],
+      selectedAnswer: json['selected_answer'] ?? '',
       explanation: json['explanation'],
       wrongReason: json['wrong_reason'],
     );

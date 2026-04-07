@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flutter (Chrome)",
+      "type": "dart",
+      "request": "launch",
+      "url": "http://localhost:51739",
+      "webServerPort": 51739,
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/constants/api_constants.dart';
 
@@ -7,8 +8,15 @@ class ApiService {
   factory ApiService() => _instance;
 
   late Dio _dio;
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
   String? _token;
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+    webOptions: WebOptions(
+      dbName: 'MedExamSecureStorage',
+      publicKey: 'MedExamPublicKey',
+    ),
+  );
 
   ApiService._internal() {
     _dio = Dio(BaseOptions(
@@ -30,8 +38,7 @@ class ApiService {
       onError: (error, handler) {
         if (error.response?.statusCode == 401) {
           // Token 过期，清理存储
-          _storage.delete(key: 'access_token');
-          _token = null;
+          clearToken();
         }
         return handler.next(error);
       },
@@ -39,17 +46,22 @@ class ApiService {
   }
 
   Future<void> loadToken() async {
-    _token = await _storage.read(key: 'access_token');
+    if (kIsWeb) {
+      // Web 环境使用 localStorage
+      _token = await _secureStorage.read(key: 'access_token');
+    } else {
+      _token = await _secureStorage.read(key: 'access_token');
+    }
   }
 
   Future<void> setToken(String token) async {
     _token = token;
-    await _storage.write(key: 'access_token', value: token);
+    await _secureStorage.write(key: 'access_token', value: token);
   }
 
   Future<void> clearToken() async {
     _token = null;
-    await _storage.delete(key: 'access_token');
+    await _secureStorage.delete(key: 'access_token');
   }
 
   bool get hasToken => _token != null;
