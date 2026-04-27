@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
 import uuid
+import re
 import httpx
 
 from app.core.database import get_db
@@ -18,11 +19,18 @@ from app.api.deps import get_current_user
 router = APIRouter(prefix="/api/ai", tags=["AI 答疑"])
 
 
+def strip_thinking(response: str) -> str:
+    """去除模型的 think 标签内容"""
+    response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL)
+    response = re.sub(r"<thinking>.*?</thinking>", "", response, flags=re.DOTALL)
+    return response.strip()
+
+
 async def call_ai_model(messages: list) -> str:
     """调用国产大模型 API"""
-    if not settings.AI_API_KEY:
+    if not settings.AI_API_KEY or settings.AI_API_KEY.startswith("YOUR_"):
         # Demo 模式：返回模拟回答
-        return "这是一个 AI 答疑演示。当前未配置 AI API，请配置 SiliconFlow/智谱GLM/通义Qwen 的 API Key。\n\n免费方案：\n1. 注册 SiliconFlow (https://cloud.siliconflow.cn)\n2. 获取免费 API Key\n3. 在 .env 中配置 AI_API_KEY\n\n配置示例 (.env):\nAI_API_KEY=your-siliconflow-api-key\nAI_BASE_URL=https://api.siliconflow.cn/v1\nAI_MODEL=Qwen/Qwen2.5-7B-Instruct"
+        return build_demo_response(messages[-1]["content"] if messages else "")
 
     headers = {
         "Authorization": f"Bearer {settings.AI_API_KEY}",
@@ -44,7 +52,8 @@ async def call_ai_model(messages: list) -> str:
             payload = {
                 "model": settings.AI_MODEL,
                 "messages": messages,
-                "stream": False
+                "stream": False,
+                "chat_template_kwargs": {"enable_thinking": False},
             }
 
             response = await client.post(
@@ -56,14 +65,37 @@ async def call_ai_model(messages: list) -> str:
             resp_json = response.json()
             # MiniMax 响应格式
             if "choices" in resp_json and len(resp_json["choices"]) > 0:
-                return resp_json["choices"][0]["message"]["content"]
+                raw = resp_json["choices"][0]["message"]["content"]
+                return strip_thinking(raw)
             # 备用格式
             elif "text" in resp_json:
-                return resp_json["text"]
+                return strip_thinking(resp_json["text"])
             else:
                 return str(resp_json)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"AI 服务调用失败: {str(e)}")
+
+
+def build_demo_response(user_question: str) -> str:
+    """未配置 API Key 时的演示回复"""
+    return f"""⚠️ **AI 未配置** — 当前是演示模式
+
+请配置 AI API Key 后即可使用真实 AI 答疑。
+
+**免费获取 API Key：**
+1. 访问 [SiliconFlow 硅基流动](https://cloud.siliconflow.cn) 注册
+2. 在账户页面获取免费 API Key
+3. 在 `backend/.env` 中配置：
+   ```
+   AI_API_KEY=你的API_KEY
+   AI_BASE_URL=https://api.siliconflow.cn/v1
+   AI_MODEL=Qwen/Qwen2.5-7B-Instruct
+   ```
+4. 重启后端服务
+
+**你发送的问题：** {user_question[:200]}
+
+> 配置完成后，AI 将针对你的问题进行专业医学解答。"""
 
 
 def build_medical_system_prompt() -> str:
