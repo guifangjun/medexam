@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'core/app_messenger.dart';
 import 'core/theme/app_theme.dart';
 import 'data/providers/auth_provider.dart';
 import 'data/providers/question_provider.dart';
@@ -28,6 +29,7 @@ class MedExamApp extends StatelessWidget {
         title: 'MedExam AI',
         theme: AppTheme.lightTheme,
         debugShowCheckedModeBanner: false,
+        scaffoldMessengerKey: rootScaffoldMessengerKey,
         home: const HomeScreen(),
       ),
     );

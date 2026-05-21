@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
@@ -54,6 +55,9 @@ class AuthProvider extends ChangeNotifier {
       _user = User.fromJson(userRes.data);
       _isLoggedIn = true;
       return true;
+    } on DioException catch (e) {
+      _error = _extractErrorMessage(e, '登录失败，请检查用户名和密码');
+      return false;
     } catch (e) {
       _error = '登录失败，请检查用户名和密码';
       return false;
@@ -83,6 +87,9 @@ class AuthProvider extends ChangeNotifier {
 
       // 注册成功后自动登录
       return await login(username, password);
+    } on DioException catch (e) {
+      _error = _extractErrorMessage(e, '注册失败，请稍后重试');
+      return false;
     } catch (e) {
       _error = '注册失败，请稍后重试';
       return false;
@@ -102,5 +109,22 @@ class AuthProvider extends ChangeNotifier {
   void clearError() {
     _error = null;
     notifyListeners();
+  }
+
+  String _extractErrorMessage(DioException e, String fallback) {
+    final detail = e.response?.data;
+    if (detail is Map && detail['detail'] != null) {
+      final message = detail['detail'];
+      if (message is String && message.isNotEmpty) {
+        return message;
+      }
+      if (message is List && message.isNotEmpty) {
+        final first = message.first;
+        if (first is Map && first['msg'] != null) {
+          return first['msg'].toString();
+        }
+      }
+    }
+    return fallback;
   }
 }

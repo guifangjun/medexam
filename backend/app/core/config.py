@@ -6,8 +6,8 @@ class Settings(BaseSettings):
     APP_NAME: str = "MedExam AI"
     DEBUG: bool = True
 
-    # Database
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/medexam"
+    # Database (本地开发默认 SQLite；生产可改为 PostgreSQL)
+    DATABASE_URL: str = "sqlite+aiosqlite:///./medexam.db"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"

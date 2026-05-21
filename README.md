@@ -99,11 +99,11 @@ medexam/
 cd backend
 pip install -r requirements.txt
 
-# 配置环境变量
-export DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/medexam
+# 配置环境变量（可选，默认使用 SQLite 本地库 backend/medexam.db）
+# export DATABASE_URL=sqlite+aiosqlite:///./medexam.db
 export AI_API_KEY=your-api-key
 
-# 运行服务
+# 运行服务（启动时自动建表并写入示例题库）
 uvicorn app.main:app --reload --port 8000
 ```
 

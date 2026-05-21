@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -76,13 +78,16 @@ class _ExamScreenState extends State<ExamScreen> {
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () {
+                          final durationMinutes = _selectedCount ~/ 2;
                           context
                               .read<QuestionProvider>()
                               .loadExamQuestions(count: _selectedCount);
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const _ExamSessionScreen(),
+                              builder: (_) => _ExamSessionScreen(
+                                durationMinutes: durationMinutes,
+                              ),
                             ),
                           );
                         },
@@ -152,14 +157,148 @@ class _ExamScreenState extends State<ExamScreen> {
   }
 }
 
-class _ExamSessionScreen extends StatelessWidget {
-  const _ExamSessionScreen();
+class _ExamSessionScreen extends StatefulWidget {
+  final int durationMinutes;
+
+  const _ExamSessionScreen({required this.durationMinutes});
+
+  @override
+  State<_ExamSessionScreen> createState() => _ExamSessionScreenState();
+}
+
+class _ExamSessionScreenState extends State<_ExamSessionScreen> {
+  late int _remainingSeconds;
+  Timer? _timer;
+  bool _timeUpHandled = false;
+  bool _warnedFiveMinutes = false;
+  bool _warnedOneMinute = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _remainingSeconds = widget.durationMinutes * 60;
+    _timer = Timer.periodic(const Duration(seconds: 1), _onTick);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('考试时长 ${widget.durationMinutes} 分钟，倒计时已开始'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    });
+  }
+
+  void _onTick(Timer timer) {
+    if (_timeUpHandled) return;
+
+    if (_remainingSeconds <= 0) {
+      _timer?.cancel();
+      _handleTimeUp();
+      return;
+    }
+
+    setState(() => _remainingSeconds--);
+
+    if (_remainingSeconds == 300 && !_warnedFiveMinutes) {
+      _warnedFiveMinutes = true;
+      _showTimeWarning('还剩 5 分钟，请抓紧答题');
+    } else if (_remainingSeconds == 60 && !_warnedOneMinute) {
+      _warnedOneMinute = true;
+      _showTimeWarning('还剩 1 分钟，即将自动交卷');
+    }
+  }
+
+  void _showTimeWarning(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppTheme.warningColor,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _handleTimeUp() {
+    if (_timeUpHandled || !mounted) return;
+    _timeUpHandled = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('考试时间到'),
+        content: const Text('考试时间已结束，系统将自动提交本次考试。'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pop(context);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _formatTime(int seconds) {
+    final minutes = seconds ~/ 60;
+    final secs = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+
+  Color _timerColor() {
+    if (_remainingSeconds <= 60) return AppTheme.errorColor;
+    if (_remainingSeconds <= 300) return AppTheme.warningColor;
+    return Colors.white;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final isUrgent = _remainingSeconds <= 300;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('考试中'),
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: isUrgent
+                  ? _timerColor().withOpacity(0.2)
+                  : Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isUrgent ? _timerColor() : Colors.white54,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.timer_outlined, size: 18, color: _timerColor()),
+                const SizedBox(width: 4),
+                Text(
+                  _formatTime(_remainingSeconds),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: _timerColor(),
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () {
@@ -167,7 +306,9 @@ class _ExamSessionScreen extends StatelessWidget {
               context: context,
               builder: (context) => AlertDialog(
                 title: const Text('退出考试？'),
-                content: const Text('退出后考试将被标记为未完成'),
+                content: Text(
+                  '退出后考试将被标记为未完成\n剩余时间：${_formatTime(_remainingSeconds)}',
+                ),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(context),
@@ -175,6 +316,7 @@ class _ExamSessionScreen extends StatelessWidget {
                   ),
                   TextButton(
                     onPressed: () {
+                      _timer?.cancel();
                       Navigator.pop(context);
                       Navigator.pop(context);
                     },
@@ -186,18 +328,49 @@ class _ExamSessionScreen extends StatelessWidget {
           },
         ),
       ),
-      body: Consumer<QuestionProvider>(
-        builder: (context, provider, _) {
-          if (provider.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: Column(
+        children: [
+          if (isUrgent)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: _timerColor().withOpacity(0.12),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      size: 18, color: _timerColor()),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _remainingSeconds <= 60
+                          ? '时间紧迫！还剩 ${_formatTime(_remainingSeconds)}，请尽快完成答题'
+                          : '还剩 ${_formatTime(_remainingSeconds)}，请抓紧时间',
+                      style: TextStyle(
+                        color: _timerColor(),
+                        fontWeight: FontWeight.w500,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: Consumer<QuestionProvider>(
+              builder: (context, provider, _) {
+                if (provider.isLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-          if (!provider.hasQuestions) {
-            return const Center(child: Text('暂无题目'));
-          }
+                if (!provider.hasQuestions) {
+                  return const Center(child: Text('暂无题目'));
+                }
 
-          return _ExamQuestionView(provider: provider);
-        },
+                return _ExamQuestionView(provider: provider);
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

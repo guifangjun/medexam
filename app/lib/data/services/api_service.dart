@@ -75,10 +75,13 @@ class ApiService {
   Future<Response> login(String username, String password) async {
     return _dio.post(
       ApiConstants.login,
-      data: FormData.fromMap({
+      data: {
         'username': username,
         'password': password,
-      }),
+      },
+      options: Options(
+        contentType: Headers.formUrlEncodedContentType,
+      ),
     );
   }
 
