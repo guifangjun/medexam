@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../data/providers/auth_provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/app_messenger.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -51,14 +52,31 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     }
 
-    if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+    if (!mounted) return;
+
+    if (success) {
+      final displayName = auth.user?.fullName ?? auth.user?.username;
+      final message = _isLogin
+          ? '登录成功${displayName != null ? '，欢迎 $displayName' : ''}'
+          : '注册成功${displayName != null ? '，欢迎 $displayName' : ''}，已自动登录';
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
         SnackBar(
-          content: Text(auth.error ?? '操作失败'),
-          backgroundColor: AppTheme.errorColor,
+          content: Text(message),
+          backgroundColor: AppTheme.secondaryColor,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
         ),
       );
+      return;
     }
+
+    rootScaffoldMessengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: Text(auth.error ?? '操作失败'),
+        backgroundColor: AppTheme.errorColor,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override

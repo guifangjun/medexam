@@ -16,6 +16,9 @@ ENV/
 .idea/
 .vscode/
 
+# SQLite
+*.db
+
 # Testing
 .pytest_cache/
 .coverage
