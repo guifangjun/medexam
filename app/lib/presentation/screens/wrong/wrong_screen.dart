@@ -23,41 +23,34 @@ class _WrongScreenState extends State<WrongScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('错题本'),
-      ),
+      appBar: AppBar(title: const Text('错题本')),
       body: Consumer<StudyProvider>(
         builder: (context, provider, _) {
           if (provider.isLoading) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (provider.wrongQuestions.isEmpty) {
+          final wrongs = provider.wrongQuestions;
+
+          if (wrongs.isEmpty) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.check_circle_outline,
-                    size: 80,
-                    color: Colors.green[300],
-                  ),
+                  Icon(Icons.check_circle_outline_rounded,
+                      size: 80,
+                      color: AppTheme.success.withOpacity(0.5)),
                   const SizedBox(height: 24),
-                  const Text(
-                    '太棒了！',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '暂无错题记录',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[600],
-                    ),
-                  ),
+                  const Text('太棒了！',
+                      style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.textPrimary)),
+                  const SizedBox(height: 6),
+                  const Text('暂无错题记录',
+                      style: TextStyle(
+                          fontSize: 15,
+                          color: AppTheme.textSecondary)),
                   const SizedBox(height: 32),
                   ElevatedButton(
                     onPressed: () => Navigator.pop(context),
@@ -68,215 +61,233 @@ class _WrongScreenState extends State<WrongScreen> {
             );
           }
 
-          // 按错因分组统计
+          // 错因统计
           final reasonCount = <String, int>{};
-          for (final wrong in provider.wrongQuestions) {
-            final reason = wrong.wrongReason ?? '未分类';
-            reasonCount[reason] = (reasonCount[reason] ?? 0) + 1;
+          for (final w in wrongs) {
+            final r = w.wrongReason ?? '未分类';
+            reasonCount[r] = (reasonCount[r] ?? 0) + 1;
           }
+
+          final mastered = wrongs.where((w) => w.isMastered).length;
 
           return CustomScrollView(
             slivers: [
-              // 统计卡片
+              // 统计
               SliverToBoxAdapter(
                 child: Container(
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(16),
+                  margin: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
-                        AppTheme.errorColor.withOpacity(0.1),
-                        AppTheme.primaryColor.withOpacity(0.1),
+                        AppTheme.error.withOpacity(0.08),
+                        AppTheme.primary.withOpacity(0.08),
                       ],
                     ),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AppTheme.divider),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
                       _StatBox(
-                        label: '错题总数',
-                        value: '${provider.wrongQuestions.length}',
-                        color: AppTheme.errorColor,
-                      ),
+                          label: '错题总数',
+                          value: '${wrongs.length}',
+                          color: AppTheme.error),
                       _StatBox(
-                        label: '已掌握',
-                        value: '${provider.wrongQuestions.where((w) => w.isMastered).length}',
-                        color: AppTheme.secondaryColor,
-                      ),
+                          label: '已掌握',
+                          value: '$mastered',
+                          color: AppTheme.success),
                       _StatBox(
-                        label: '待复习',
-                        value: '${provider.wrongQuestions.where((w) => !w.isMastered).length}',
-                        color: AppTheme.warningColor,
-                      ),
+                          label: '待复习',
+                          value: '${wrongs.length - mastered}',
+                          color: AppTheme.accent),
                     ],
                   ),
                 ),
               ),
-              // 错因分布
+              // 错因分析
               if (reasonCount.isNotEmpty)
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '错因分析',
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.divider),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('错因分析',
                               style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            ...reasonCount.entries.map((e) {
-                              final percentage = provider.wrongQuestions.isEmpty
-                                  ? 0.0
-                                  : e.value / provider.wrongQuestions.length;
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(e.key),
-                                        Text('${e.value} 题'),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    LinearProgressIndicator(
-                                      value: percentage,
-                                      backgroundColor: Colors.grey[200],
-                                      valueColor: AlwaysStoppedAnimation(
-                                        _getReasonColor(e.key),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15)),
+                          const SizedBox(height: 12),
+                          ...reasonCount.entries.map((e) {
+                            final pct =
+                                (e.value / wrongs.length * 100).toInt();
+                            return Padding(
+                              padding:
+                                  const EdgeInsets.only(bottom: 10),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 64,
+                                    child: Text(e.key,
+                                        style: const TextStyle(
+                                            fontSize: 13,
+                                            color:
+                                                AppTheme.textSecondary)),
+                                  ),
+                                  Expanded(
+                                    child: ClipRRect(
+                                      borderRadius:
+                                          BorderRadius.circular(4),
+                                      child: LinearProgressIndicator(
+                                        value: pct / 100.0,
+                                        minHeight: 8,
+                                        backgroundColor:
+                                            AppTheme.divider,
+                                        valueColor:
+                                            AlwaysStoppedAnimation(
+                                                _getReasonColor(
+                                                    e.key)),
                                       ),
                                     ),
-                                  ],
-                                ),
-                              );
-                            }),
-                          ],
-                        ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text('$pct%',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 12)),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
                       ),
                     ),
                   ),
                 ),
               // 错题列表
               SliverPadding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 80),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
-                      final wrong = provider.wrongQuestions[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: InkWell(
-                          onTap: () => _showWrongDetail(context, wrong),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 48,
-                                  height: 48,
-                                  decoration: BoxDecoration(
-                                    color: wrong.isMastered
-                                        ? AppTheme.secondaryColor.withOpacity(0.1)
-                                        : AppTheme.errorColor.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      '${index + 1}',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: wrong.isMastered
-                                            ? AppTheme.secondaryColor
-                                            : AppTheme.errorColor,
-                                      ),
-                                    ),
-                                  ),
+                      final w = wrongs[index];
+                      return GestureDetector(
+                        onTap: () =>
+                            _showWrongDetail(context, w),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border:
+                                Border.all(color: AppTheme.divider),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: w.isMastered
+                                      ? AppTheme.success
+                                          .withOpacity(0.1)
+                                      : AppTheme.error
+                                          .withOpacity(0.1),
+                                  borderRadius:
+                                      BorderRadius.circular(12),
                                 ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '题目 #${wrong.questionId}',
+                                child: Icon(
+                                  w.isMastered
+                                      ? Icons.check_circle_rounded
+                                      : Icons.close_rounded,
+                                  color: w.isMastered
+                                      ? AppTheme.success
+                                      : AppTheme.error,
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text('错题 #${w.questionId}',
                                         style: const TextStyle(
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          if (wrong.wrongReason != null)
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 6,
-                                                vertical: 2,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: _getReasonColor(
-                                                        wrong.wrongReason!)
-                                                    .withOpacity(0.1),
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                              ),
-                                              child: Text(
-                                                wrong.wrongReason!,
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: _getReasonColor(
-                                                      wrong.wrongReason!),
+                                            fontWeight:
+                                                FontWeight.w600,
+                                            color:
+                                                AppTheme.textPrimary)),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        if (w.wrongReason != null) ...[
+                                          Container(
+                                            padding:
+                                                const EdgeInsets
+                                                    .symmetric(
+                                                  horizontal: 6,
+                                                  vertical: 2,
                                                 ),
-                                              ),
+                                            decoration: BoxDecoration(
+                                              color: _getReasonColor(
+                                                      w.wrongReason!)
+                                                  .withOpacity(0.1),
+                                              borderRadius:
+                                                  BorderRadius
+                                                      .circular(4),
                                             ),
+                                            child: Text(
+                                                w.wrongReason!,
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color:
+                                                      _getReasonColor(
+                                                          w.wrongReason!),
+                                                  fontWeight:
+                                                      FontWeight.w500,
+                                                )),
+                                          ),
                                           const SizedBox(width: 8),
-                                          Icon(
-                                            Icons.refresh,
-                                            size: 14,
-                                            color: Colors.grey[600],
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            '${wrong.reviewCount} 次',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey[600],
-                                            ),
-                                          ),
                                         ],
-                                      ),
-                                    ],
-                                  ),
+                                        Icon(Icons.refresh_rounded,
+                                            size: 14,
+                                            color: AppTheme.textHint),
+                                        const SizedBox(width: 2),
+                                        Text('${w.reviewCount} 次',
+                                            style: const TextStyle(
+                                                fontSize: 12,
+                                                color: AppTheme
+                                                    .textSecondary)),
+                                      ],
+                                    ),
+                                  ],
                                 ),
-                                if (wrong.isMastered)
-                                  const Icon(
-                                    Icons.check_circle,
-                                    color: AppTheme.secondaryColor,
-                                  )
-                                else
-                                  const Icon(
-                                    Icons.chevron_right,
-                                    color: Colors.grey,
-                                  ),
-                              ],
-                            ),
+                              ),
+                              if (w.isMastered)
+                                const Icon(
+                                    Icons.check_circle_rounded,
+                                    color: AppTheme.success,
+                                    size: 22)
+                              else
+                                const Icon(Icons.chevron_right,
+                                    color: AppTheme.textHint,
+                                    size: 20),
+                            ],
                           ),
                         ),
                       );
                     },
-                    childCount: provider.wrongQuestions.length,
+                    childCount: wrongs.length,
                   ),
                 ),
               ),
@@ -292,68 +303,65 @@ class _WrongScreenState extends State<WrongScreen> {
       case '粗心大意':
         return Colors.orange;
       case '概念不清':
-        return AppTheme.errorColor;
+        return AppTheme.error;
       case '记忆模糊':
         return Colors.purple;
       case '理解偏差':
         return Colors.blue;
       default:
-        return Colors.grey;
+        return AppTheme.textSecondary;
     }
   }
 
-  void _showWrongDetail(BuildContext context, wrong) {
+  void _showWrongDetail(BuildContext context, dynamic wrong) {
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) {
+      builder: (ctx) {
         return DraggableScrollableSheet(
-          initialChildSize: 0.6,
-          minChildSize: 0.4,
-          maxChildSize: 0.9,
+          initialChildSize: 0.55,
+          maxChildSize: 0.85,
+          minChildSize: 0.35,
           expand: false,
           builder: (context, scrollController) {
-            return SingleChildScrollView(
-              controller: scrollController,
+            return Padding(
               padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: ListView(
+                controller: scrollController,
                 children: [
                   Center(
                     child: Container(
                       width: 40,
                       height: 4,
                       decoration: BoxDecoration(
-                        color: Colors.grey[300],
+                        color: AppTheme.divider,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    '错题详情',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  // TODO: 显示题目详情
-                  Text('题目 ID: ${wrong.questionId}'),
-                  const SizedBox(height: 8),
-                  Text('错因: ${wrong.wrongReason ?? '未分类'}'),
-                  const SizedBox(height: 8),
-                  Text('复习次数: ${wrong.reviewCount}'),
+                  const SizedBox(height: 20),
+                  const Text('错题详情',
+                      style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 20),
+                  _DetailRow(
+                      label: '题目 ID', value: '${wrong.questionId}'),
+                  _DetailRow(
+                      label: '错因',
+                      value: wrong.wrongReason ?? '未分类'),
+                  _DetailRow(
+                      label: '复习次数',
+                      value: '${wrong.reviewCount} 次'),
                   const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
+                    height: 48,
                     child: ElevatedButton(
                       onPressed: () {
-                        // TODO: 开始复习
-                        Navigator.pop(context);
+                        Navigator.pop(ctx);
                       },
                       child: const Text('开始复习'),
                     ),
@@ -383,23 +391,45 @@ class _StatBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
+        Text(value,
+            style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w700,
+                color: color)),
         const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 12,
-          ),
-        ),
+        Text(label,
+            style: const TextStyle(
+                fontSize: 12, color: AppTheme.textSecondary)),
       ],
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _DetailRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(label,
+                style: const TextStyle(
+                    color: AppTheme.textSecondary, fontSize: 14)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textPrimary)),
+          ),
+        ],
+      ),
     );
   }
 }

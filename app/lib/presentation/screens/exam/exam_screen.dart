@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -19,137 +18,195 @@ class _ExamScreenState extends State<ExamScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('模拟考试'),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '选择题量',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              children: [25, 50, 100].map((count) {
-                final isSelected = _selectedCount == count;
-                return ChoiceChip(
-                  label: Text('$count 题'),
-                  selected: isSelected,
-                  onSelected: (_) => setState(() => _selectedCount = count),
-                  selectedColor: AppTheme.primaryColor.withOpacity(0.2),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 32),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    const Icon(
-                      Icons.timer,
-                      size: 48,
-                      color: AppTheme.primaryColor,
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      '模拟考试',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '共 $_selectedCount 题，时间 ${_selectedCount ~/ 2} 分钟',
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '题型：单选、多选、病例题',
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          final durationMinutes = _selectedCount ~/ 2;
-                          context
-                              .read<QuestionProvider>()
-                              .loadExamQuestions(count: _selectedCount);
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => _ExamSessionScreen(
-                                durationMinutes: durationMinutes,
-                              ),
-                            ),
-                          );
-                        },
-                        child: const Text('开始考试'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              '考试说明',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            _buildExamRule(
-              Icons.access_time,
-              '计时考试',
-              '按考试标准时间计时，超时自动提交',
-            ),
-            _buildExamRule(
-              Icons.block,
-              '不能回改',
-              '提交答案后不能返回修改',
-            ),
-            _buildExamRule(
-              Icons.bar_chart,
-              '详细报告',
-              '考试结束后查看正确率和知识点分析',
-            ),
-          ],
-        ),
+      appBar: AppBar(title: const Text('模拟考试')),
+      body: Consumer<QuestionProvider>(
+        builder: (context, provider, _) {
+          if (provider.hasQuestions && provider.hasQuestions) {
+            return _ExamSessionScreen(questionCount: _selectedCount);
+          }
+          return _buildSetupView();
+        },
       ),
     );
   }
 
-  Widget _buildExamRule(IconData icon, String title, String desc) {
+  Widget _buildSetupView() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [AppTheme.primary, AppTheme.primaryLight],
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: const Icon(Icons.assignment_rounded,
+                      size: 32, color: Colors.white),
+                ),
+                const SizedBox(height: 16),
+                const Text('模拟考试',
+                    style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white)),
+                const SizedBox(height: 6),
+                const Text('仿真考场 · 限时作答',
+                    style: TextStyle(color: Colors.white70, fontSize: 14)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text('选择题量',
+              style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textPrimary,
+                  fontSize: 15)),
+          const SizedBox(height: 12),
+          Row(
+            children: [25, 50, 100].map((count) {
+              final sel = _selectedCount == count;
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                      left: count == 25 ? 0 : 8,
+                      right: count == 100 ? 0 : 8),
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedCount = count),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: sel
+                            ? AppTheme.primary.withOpacity(0.1)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: sel ? AppTheme.primary : AppTheme.divider,
+                          width: sel ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Text('$count',
+                              style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                  color: sel
+                                      ? AppTheme.primary
+                                      : AppTheme.textPrimary)),
+                          Text('题',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: sel
+                                      ? AppTheme.primary
+                                      : AppTheme.textSecondary)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.access_time_rounded,
+                    size: 20, color: AppTheme.accent),
+                const SizedBox(width: 8),
+                Text(
+                  '预计时长 ${_selectedCount ~/ 2} 分钟',
+                  style: const TextStyle(
+                      color: AppTheme.textSecondary, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                context
+                    .read<QuestionProvider>()
+                    .loadExamQuestions(count: _selectedCount);
+              },
+              icon: const Icon(Icons.play_arrow_rounded),
+              label: const Text('开始考试'),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text('考试说明',
+              style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textPrimary,
+                  fontSize: 15)),
+          const SizedBox(height: 12),
+          _RuleItem(
+              Icons.access_time_rounded, '限时作答', '按标准考试时间计时'),
+          _RuleItem(Icons.lock_outline_rounded, '不可回退',
+              '提交后不能返回修改'),
+          _RuleItem(Icons.bar_chart_rounded, '详细报告',
+              '考后查看知识点分析'),
+        ],
+      ),
+    );
+  }
+}
+
+class _RuleItem extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String desc;
+  const _RuleItem(this.icon, this.title, this.desc);
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
+              color: AppTheme.primary.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: AppTheme.primaryColor, size: 20),
+            child: Icon(icon, color: AppTheme.primary, size: 20),
           ),
           const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
-                Text(
-                  desc,
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                ),
-              ],
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textPrimary)),
+              Text(desc,
+                  style: const TextStyle(
+                      fontSize: 12, color: AppTheme.textSecondary)),
+            ],
           ),
         ],
       ),
@@ -157,91 +214,28 @@ class _ExamScreenState extends State<ExamScreen> {
   }
 }
 
+// ════════════════════════ 考试会话 ════════════════
 class _ExamSessionScreen extends StatefulWidget {
-  final int durationMinutes;
-
-  const _ExamSessionScreen({required this.durationMinutes});
+  final int questionCount;
+  const _ExamSessionScreen({required this.questionCount});
 
   @override
   State<_ExamSessionScreen> createState() => _ExamSessionScreenState();
 }
 
 class _ExamSessionScreenState extends State<_ExamSessionScreen> {
-  late int _remainingSeconds;
   Timer? _timer;
-  bool _timeUpHandled = false;
-  bool _warnedFiveMinutes = false;
-  bool _warnedOneMinute = false;
+  int _seconds = 0;
 
   @override
   void initState() {
     super.initState();
-    _remainingSeconds = widget.durationMinutes * 60;
-    _timer = Timer.periodic(const Duration(seconds: 1), _onTick);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('考试时长 ${widget.durationMinutes} 分钟，倒计时已开始'),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+    _seconds = widget.questionCount ~/ 2 * 60;
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_seconds > 0) {
+        setState(() => _seconds--);
+      }
     });
-  }
-
-  void _onTick(Timer timer) {
-    if (_timeUpHandled) return;
-
-    if (_remainingSeconds <= 0) {
-      _timer?.cancel();
-      _handleTimeUp();
-      return;
-    }
-
-    setState(() => _remainingSeconds--);
-
-    if (_remainingSeconds == 300 && !_warnedFiveMinutes) {
-      _warnedFiveMinutes = true;
-      _showTimeWarning('还剩 5 分钟，请抓紧答题');
-    } else if (_remainingSeconds == 60 && !_warnedOneMinute) {
-      _warnedOneMinute = true;
-      _showTimeWarning('还剩 1 分钟，即将自动交卷');
-    }
-  }
-
-  void _showTimeWarning(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppTheme.warningColor,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
-  void _handleTimeUp() {
-    if (_timeUpHandled || !mounted) return;
-    _timeUpHandled = true;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('考试时间到'),
-        content: const Text('考试时间已结束，系统将自动提交本次考试。'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Navigator.pop(context);
-            },
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -250,328 +244,281 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
     super.dispose();
   }
 
-  String _formatTime(int seconds) {
-    final minutes = seconds ~/ 60;
-    final secs = seconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
-  }
-
-  Color _timerColor() {
-    if (_remainingSeconds <= 60) return AppTheme.errorColor;
-    if (_remainingSeconds <= 300) return AppTheme.warningColor;
-    return Colors.white;
+  String get _timeStr {
+    final m = _seconds ~/ 60;
+    final s = _seconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
   @override
   Widget build(BuildContext context) {
-    final isUrgent = _remainingSeconds <= 300;
+    return Consumer<QuestionProvider>(
+      builder: (context, provider, _) {
+        final q = provider.currentQuestion;
+        final result = provider.lastResult;
+        if (q == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('考试中'),
-        actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 12),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: isUrgent
-                  ? _timerColor().withOpacity(0.2)
-                  : Colors.white.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: isUrgent ? _timerColor() : Colors.white54,
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(_timeStr,
+                style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    color: _seconds < 120 ? AppTheme.error : AppTheme.textPrimary)),
+            centerTitle: true,
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                  title: const Text('确认交卷？'),
+                  content: const Text('剩余未答题将不计分。'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('继续答题')),
+                    ElevatedButton(
+                        onPressed: () {
+                          provider.reset();
+                          Navigator.pop(ctx);
+                        },
+                        child: const Text('交卷')),
+                  ],
+                ),
               ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.timer_outlined, size: 18, color: _timerColor()),
-                const SizedBox(width: 4),
-                Text(
-                  _formatTime(_remainingSeconds),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: _timerColor(),
-                    fontFeatures: const [FontFeature.tabularFigures()],
+            actions: [
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: Text(
+                    '${provider.currentIndex + 1}/${provider.currentQuestions.length}',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textSecondary),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () {
-            showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: const Text('退出考试？'),
-                content: Text(
-                  '退出后考试将被标记为未完成\n剩余时间：${_formatTime(_remainingSeconds)}',
+          body: Column(
+            children: [
+              // 进度条
+              ClipRRect(
+                child: LinearProgressIndicator(
+                  value: provider.progress,
+                  minHeight: 4,
+                  backgroundColor: AppTheme.divider,
+                  valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
                 ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('取消'),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      _timer?.cancel();
-                      Navigator.pop(context);
-                      Navigator.pop(context);
-                    },
-                    child: const Text('退出'),
-                  ),
-                ],
               ),
-            );
-          },
-        ),
-      ),
-      body: Column(
-        children: [
-          if (isUrgent)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: _timerColor().withOpacity(0.12),
-              child: Row(
-                children: [
-                  Icon(Icons.warning_amber_rounded,
-                      size: 18, color: _timerColor()),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _remainingSeconds <= 60
-                          ? '时间紧迫！还剩 ${_formatTime(_remainingSeconds)}，请尽快完成答题'
-                          : '还剩 ${_formatTime(_remainingSeconds)}，请抓紧时间',
-                      style: TextStyle(
-                        color: _timerColor(),
-                        fontWeight: FontWeight.w500,
-                        fontSize: 13,
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _Tag(
+                          q.questionType == 'single'
+                              ? '单选题'
+                              : q.questionType == 'multi'
+                                  ? '多选题'
+                                  : '病例题',
+                          AppTheme.primary),
+                      const SizedBox(height: 16),
+                      Text(q.content ?? '',
+                          style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              height: 1.6)),
+                      const SizedBox(height: 20),
+                      ...(q.options ?? {}).entries.map((entry) {
+                        Color? bg, border;
+                        IconData? trailing;
+                        if (result != null) {
+                          final sel = entry.key == result.selectedAnswer;
+                          final correct = entry.key == result.correctAnswer;
+                          if (correct) {
+                            bg = AppTheme.success.withOpacity(0.08);
+                            border = AppTheme.success;
+                            trailing = Icons.check_circle_rounded;
+                          } else if (sel && !result.isCorrect) {
+                            bg = AppTheme.error.withOpacity(0.08);
+                            border = AppTheme.error;
+                            trailing = Icons.cancel_rounded;
+                          }
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Material(
+                            color: bg ?? Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            child: InkWell(
+                              onTap: result == null
+                                  ? () =>
+                                      provider.submitAnswer(entry.key)
+                                  : null,
+                              borderRadius: BorderRadius.circular(14),
+                              child: Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: border ?? AppTheme.divider,
+                                    width: border != null ? 1.5 : 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 28,
+                                      height: 28,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: border != null
+                                            ? border
+                                            : Colors.transparent,
+                                        border: Border.all(
+                                          color: border ??
+                                              AppTheme.textSecondary,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: Text(entry.key,
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 13,
+                                                color: border != null
+                                                    ? Colors.white
+                                                    : AppTheme
+                                                        .textSecondary)),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                        child: Text(entry.value,
+                                            style: const TextStyle(
+                                                height: 1.4, fontSize: 15))),
+                                    if (trailing != null)
+                                      Icon(trailing,
+                                          color: border, size: 22),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                      if (result != null && result.explanation != null) ...[
+                        const SizedBox(height: 20),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withOpacity(0.04),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                                color: AppTheme.primary.withOpacity(0.1)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.lightbulb_outline_rounded,
+                                      color: AppTheme.primary, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('解析',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.primary)),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Text(result.explanation!,
+                                  style: const TextStyle(
+                                      height: 1.6,
+                                      color: AppTheme.textPrimary,
+                                      fontSize: 14)),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 80),
+                    ],
+                  ),
+                ),
+              ),
+              // 底部操作
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                        color: Color(0x0A000000),
+                        blurRadius: 8,
+                        offset: Offset(0, -2)),
+                  ],
+                ),
+                child: SafeArea(
+                  child: Row(
+                    children: [
+                      if (provider.currentIndex > 0)
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () =>
+                                provider.previousQuestion(),
+                            child: const Text('上一题'),
+                          ),
+                        ),
+                      if (provider.currentIndex > 0)
+                        const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: result == null
+                              ? null
+                              : provider.isLastQuestion
+                                  ? () => provider.reset()
+                                  : () => provider.nextQuestion(),
+                          child: Text(
+                            provider.isLastQuestion ? '完成考试' : '下一题',
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          Expanded(
-            child: Consumer<QuestionProvider>(
-              builder: (context, provider, _) {
-                if (provider.isLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (!provider.hasQuestions) {
-                  return const Center(child: Text('暂无题目'));
-                }
-
-                return _ExamQuestionView(provider: provider);
-              },
-            ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
 
-class _ExamQuestionView extends StatelessWidget {
-  final QuestionProvider provider;
-
-  const _ExamQuestionView({required this.provider});
+class _Tag extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _Tag(this.label, this.color);
 
   @override
   Widget build(BuildContext context) {
-    final question = provider.currentQuestion!;
-    final result = provider.lastResult;
-
-    return Column(
-      children: [
-        LinearProgressIndicator(
-          value: provider.progress,
-          backgroundColor: Colors.grey[200],
-        ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      '第 ${provider.currentIndex + 1}/${provider.currentQuestions.length} 题',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const Spacer(),
-                    Text(
-                      question.questionType == 'single'
-                          ? '单选题'
-                          : question.questionType == 'multi'
-                              ? '多选题'
-                              : '病例题',
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  question.content,
-                  style: const TextStyle(fontSize: 16, height: 1.6),
-                ),
-                const SizedBox(height: 24),
-                ...question.options.entries.map((entry) {
-                  final isSelected = result != null &&
-                      entry.key.toUpperCase() ==
-                          result.selectedAnswer.toUpperCase();
-
-                  Color? bgColor;
-                  Color? borderColor;
-                  if (result != null) {
-                    if (entry.key.toUpperCase() ==
-                        result.correctAnswer.toUpperCase()) {
-                      bgColor = AppTheme.secondaryColor.withOpacity(0.1);
-                      borderColor = AppTheme.secondaryColor;
-                    } else if (isSelected && !result.isCorrect) {
-                      bgColor = AppTheme.errorColor.withOpacity(0.1);
-                      borderColor = AppTheme.errorColor;
-                    }
-                  }
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: InkWell(
-                      onTap: result == null
-                          ? () => provider.submitAnswer(entry.key)
-                          : null,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: bgColor ?? Colors.white,
-                          border: Border.all(
-                            color: borderColor ?? Colors.grey.shade300,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 28,
-                              height: 28,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: borderColor ?? AppTheme.primaryColor,
-                                  width: 2,
-                                ),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  entry.key,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: borderColor ?? AppTheme.primaryColor,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                entry.value,
-                                style: const TextStyle(height: 1.4),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-                // 解析
-                if (result != null && result.explanation != null) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.blue.shade200),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.lightbulb_outline,
-                                color: Colors.blue, size: 20),
-                            SizedBox(width: 8),
-                            Text(
-                              '解析',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          result.explanation!,
-                          style: const TextStyle(height: 1.5),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
-                blurRadius: 4,
-                offset: const Offset(0, -2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              if (provider.currentIndex > 0)
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => provider.previousQuestion(),
-                    child: const Text('上一题'),
-                  ),
-                ),
-              if (provider.currentIndex > 0) const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: provider.isLastQuestion && result != null
-                      ? () => Navigator.pop(context)
-                      : result == null
-                          ? null
-                          : () => provider.nextQuestion(),
-                  child: Text(
-                    provider.isLastQuestion && result != null
-                        ? '完成考试'
-                        : result == null
-                            ? '请先作答'
-                            : '下一题',
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              fontSize: 12, fontWeight: FontWeight.w500, color: color)),
     );
   }
 }

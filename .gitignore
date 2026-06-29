@@ -5,3 +5,4 @@ node_modules/
 *.lock
 pubspec.lock
 .env
+.DS_Store
