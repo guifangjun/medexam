@@ -1,155 +1,238 @@
-# MedExam AI - 医考学习 APP
+# MedExam AI
 
-基于 AI 的国内执业医师/助理医师考试学习平台
+面向卫生类考试用户的 AI 医考学习平台，覆盖卫生执业资格类考试、卫生初级/中级/高级职称考试。项目包含学员端 Flutter Web/App、FastAPI 后端，以及独立的 Web 管理后台。
 
-## 项目结构
+## 功能概览
 
-```
-medexam/
-├── backend/              # 后端服务 (FastAPI)
-│   ├── app/
-│   │   ├── api/         # API 路由
-│   │   │   ├── deps.py         # 认证依赖
-│   │   │   ├── questions.py    # 题库接口
-│   │   │   ├── ai_chat.py      # AI 答疑接口
-│   │   │   └── study.py        # 学习计划接口
-│   │   ├── core/        # 核心配置
-│   │   │   ├── config.py        # 应用配置
-│   │   │   └── database.py      # 数据库连接
-│   │   ├── models/      # 数据模型
-│   │   │   ├── user.py          # 用户模型
-│   │   │   ├── question.py       # 题目模型
-│   │   │   ├── study.py          # 学习计划模型
-│   │   │   └── conversation.py   # 对话模型
-│   │   ├── schemas/     # Pydantic schemas
-│   │   └── main.py      # 应用入口
-│   └── requirements.txt
-│
-└── app/                  # Flutter APP
-    ├── lib/
-    │   ├── core/
-    │   │   ├── constants/    # 常量配置
-    │   │   └── theme/         # 主题配置
-    │   ├── data/
-    │   │   ├── models/         # 数据模型
-    │   │   ├── providers/      # 状态管理
-    │   │   └── services/       # API 服务
-    │   └── presentation/
-    │       ├── screens/        # 页面
-    │       │   ├── home/       # 首页
-    │       │   ├── auth/       # 登录注册
-    │       │   ├── practice/   # 章节练习
-    │       │   ├── exam/       # 模拟考试
-    │       │   ├── ai_chat/    # AI 答疑
-    │       │   ├── study/      # 学习计划
-    │       │   ├── wrong/      # 错题本
-    │       │   └── stats/      # 数据统计
-    │       └── widgets/       # 通用组件
-    └── pubspec.yaml
-```
+### 学员端
+
+- 多考试目标：执业资格、初级职称、中级职称、高级职称
+- 首页学习看板：今日任务、学习数据、考试目标切换
+- 刷题模块：章节刷题、题目解析、错题记录
+- 模考模块：按当前考试目标生成限时模考
+- 视频课程：直播课、录播课
+- 学习计划：创建计划后自动关联今日任务
+- 错题本：错题复习、掌握状态、复习次数
+- 数据统计：今日数据、总体学习概况、薄弱科目
+- AI 答疑：自然语言问答、题目相关追问
+
+### 管理后台
+
+- 独立后台登录体系
+- 题库管理：题目列表、搜索、新增、编辑、删除
+- 课程管理：直播课/录播课新增、编辑、删除
+- 后台接口鉴权：`/api/admin/*` 需要后台 token
 
 ## 技术栈
 
-### 后端
-- **框架**: FastAPI (Python)
-- **数据库**: PostgreSQL + Redis
-- **AI**: 国产大模型 (智谱 GLM / 通义 Qwen / 文心 ERNIE)
-- **认证**: JWT
-
 ### 前端
-- **框架**: Flutter
-- **状态管理**: Provider
-- **图表**: fl_chart
-- **网络**: Dio
 
-## 功能模块
-
-### 1. 题库模块
-- 章节练习
-- 历年真题
-- AI 生成练习题
-- 模拟考试
-
-### 2. AI 答疑 (核心)
-- 自然语言问答
-- 追问机制
-- 题目答疑
-- 知识拓展
-
-### 3. 学习计划
-- 个性化计划
-- 艾宾浩斯复习
-- 每日任务推送
-
-### 4. 错题本
-- 错因分类
-- 薄弱点分析
-- 针对性复习
-
-### 5. 数据统计
-- 总体概况
-- 科目分析
-- 学习时长统计
-
-## 快速开始
+- Flutter
+- Provider
+- Dio
+- fl_chart
+- flutter_secure_storage
 
 ### 后端
+
+- FastAPI
+- SQLAlchemy Async
+- SQLite 本地开发默认库
+- JWT 认证
+- 可配置国产大模型接口
+
+## 项目结构
+
+```text
+medexam/
+├── app/                         # Flutter 学员端与管理后台
+│   ├── lib/
+│   │   ├── core/                # 常量、主题、全局消息
+│   │   ├── data/                # models/providers/services
+│   │   └── presentation/
+│   │       ├── screens/
+│   │       │   ├── admin/       # Web 管理后台
+│   │       │   ├── auth/        # 学员端登录注册
+│   │       │   ├── course/      # 视频课程
+│   │       │   ├── exam/        # 模考
+│   │       │   ├── home/        # 首页
+│   │       │   ├── practice/    # 刷题
+│   │       │   ├── stats/       # 数据统计
+│   │       │   ├── study/       # 学习计划
+│   │       │   ├── syllabus/    # 考试大纲
+│   │       │   └── wrong/       # 错题本
+│   │       └── widgets/         # 通用液态玻璃组件
+│   └── pubspec.yaml
+│
+└── backend/                     # FastAPI 后端
+    ├── app/
+    │   ├── api/                 # auth/questions/study/ai/admin
+    │   ├── core/                # 配置、数据库、初始化
+    │   ├── models/              # SQLAlchemy 模型
+    │   └── schemas/             # Pydantic schema
+    ├── requirements.txt
+    └── medexam.db               # 本地 SQLite 数据库
+```
+
+## 本地启动
+
+### 1. 启动后端
 
 ```bash
 cd backend
 pip install -r requirements.txt
-
-# 配置环境变量（可选，默认使用 SQLite 本地库 backend/medexam.db）
-# export DATABASE_URL=sqlite+aiosqlite:///./medexam.db
-export AI_API_KEY=your-api-key
-
-# 运行服务（启动时自动建表并写入示例题库）
-uvicorn app.main:app --reload --port 8000
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-### Flutter APP
+后端默认地址：
+
+```text
+http://127.0.0.1:8000
+```
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+### 2. 启动 Flutter Web
 
 ```bash
 cd app
 flutter pub get
-flutter run
+flutter run -d chrome --web-port 5275
 ```
 
-#### 固定端口运行（推荐）
+如果使用静态构建预览：
 
 ```bash
 cd app
-flutter run -d chrome --web-port 51739
+flutter build web
+cd build/web
+python3 -m http.server 5275 --bind 127.0.0.1
 ```
 
-端口固定为 51739，浏览器访问 http://localhost:51739
+### 3. 访问地址
 
-## 配置 AI 模型
+学员端：
 
-在 `backend/.env` 中配置：
+```text
+http://127.0.0.1:5275/
+```
+
+管理后台：
+
+```text
+http://127.0.0.1:5275/#/admin
+```
+
+## 默认账号
+
+### 学员端演示账号
+
+```text
+用户名：demo
+密码：demo123
+```
+
+### 管理后台演示账号
+
+```text
+用户名：admin
+密码：admin123
+```
+
+注意：默认演示账号仅用于本地开发和预览。正式环境应改为环境变量初始化管理员账号，或关闭默认账号创建逻辑。
+
+## API 模块
+
+### 学员认证
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+
+### 题库
+
+- `GET /api/questions/chapters`
+- `GET /api/questions/practice`
+- `GET /api/questions/exam`
+- `POST /api/questions/submit`
+
+### 学习
+
+- `POST /api/study/plan`
+- `GET /api/study/plan`
+- `GET /api/study/today`
+- `GET /api/study/wrong`
+- `GET /api/study/stats/today`
+- `GET /api/study/stats/overview`
+
+### AI 答疑
+
+- `POST /api/ai/chat`
+- `GET /api/ai/history`
+- `GET /api/ai/sessions`
+
+### 管理后台
+
+- `POST /api/admin/auth/login`
+- `GET /api/admin/auth/me`
+- `GET /api/admin/questions`
+- `POST /api/admin/questions`
+- `PUT /api/admin/questions/{question_id}`
+- `DELETE /api/admin/questions/{question_id}`
+- `GET /api/admin/courses`
+- `POST /api/admin/courses`
+- `PUT /api/admin/courses/{course_id}`
+- `DELETE /api/admin/courses/{course_id}`
+
+## 环境配置
+
+后端配置位于 `backend/.env`，默认使用本地 SQLite：
 
 ```env
-# 智谱 GLM
-AI_API_KEY=your-zhipu-api-key
-AI_BASE_URL=https://open.bigmodel.cn/api/paas/v4
-AI_MODEL=glm-4
-
-# 或 通义 Qwen
-AI_API_KEY=your-dashscope-api-key
-AI_BASE_URL=https://dashscope.aliyuncs.com/api/v1
-AI_MODEL=qwen-turbo
+DATABASE_URL=sqlite+aiosqlite:///./medexam.db
+SECRET_KEY=your-secret-key-change-in-production
+AI_API_KEY=your-api-key
+AI_BASE_URL=https://api.example.com/v1
+AI_MODEL=Qwen/Qwen2.5-7B-Instruct
 ```
 
-## 考试大纲
+## 常用命令
 
-覆盖执业医师考试全部科目：
-- 基础医学
-- 临床医学
-- 内科学
-- 外科学
-- 妇产科学
-- 儿科学
-- 预防医学
+格式化 Flutter 代码：
+
+```bash
+cd app
+dart format lib
+```
+
+构建 Web：
+
+```bash
+cd app
+flutter build web
+```
+
+Python 语法检查：
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/medexam_pycache \
+python3 -m py_compile backend/app/api/*.py backend/app/schemas/*.py
+```
+
+## 设计风格
+
+当前 UI 使用浅色液态玻璃风格，主色为深海蓝，强调简洁、清晰、适合医疗考试学习场景。学员端和登录页保持统一视觉；管理后台为独立系统，但沿用相同品牌色和组件风格。
+
+## 注意事项
+
+- 管理后台和学员端是两套账号体系，token 分开存储。
+- 本地默认数据库文件为 `backend/medexam.db`。
+- 当前课程管理后台已支持数据写入，但学员端课程页仍以演示课程数据为主，后续可改为读取 `/api/admin/courses` 的已发布课程。
+- `.DS_Store` 不应提交到仓库，建议加入 `.gitignore`。
 
 ## License
 
