@@ -41,6 +41,7 @@ class StudyPlan {
 
 class DailyTask {
   final int id;
+  final int? planId;
   final String date;
   final int targetQuestions;
   final int completedQuestions;
@@ -49,6 +50,7 @@ class DailyTask {
 
   DailyTask({
     required this.id,
+    this.planId,
     required this.date,
     required this.targetQuestions,
     required this.completedQuestions,
@@ -59,6 +61,7 @@ class DailyTask {
   factory DailyTask.fromJson(Map<String, dynamic> json) {
     return DailyTask(
       id: json['id'],
+      planId: json['plan_id'],
       date: json['date'],
       targetQuestions: json['target_questions'],
       completedQuestions: json['completed_questions'],

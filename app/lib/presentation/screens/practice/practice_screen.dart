@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../data/providers/question_provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../widgets/app_glass.dart';
 
 class PracticeScreen extends StatefulWidget {
   const PracticeScreen({super.key});
@@ -22,9 +23,9 @@ class _PracticeScreenState extends State<PracticeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return GlassScaffold(
       appBar: AppBar(
-        title: const Text('章节练习'),
+        title: const Text('章节刷题'),
         actions: [
           if (context.watch<QuestionProvider>().hasQuestions)
             IconButton(
@@ -54,8 +55,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.folder_open_rounded, size: 64,
-                color: AppTheme.textHint),
+            Icon(Icons.folder_open_rounded, size: 64, color: AppTheme.textHint),
             const SizedBox(height: 16),
             const Text('暂无章节数据',
                 style: TextStyle(color: AppTheme.textSecondary)),
@@ -81,64 +81,51 @@ class _PracticeScreenState extends State<PracticeScreen> {
         final c = colors[index % colors.length];
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: Material(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () =>
-                  provider.loadPracticeQuestions(chapterId: ch.id),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.divider),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: c.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Center(
-                        child: Text(
-                          '${index + 1}',
-                          style: TextStyle(
-                            color: c,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 18,
-                          ),
-                        ),
+          child: GlassCard(
+            onTap: () => provider.loadPracticeQuestions(chapterId: ch.id),
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: c.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${index + 1}',
+                      style: TextStyle(
+                        color: c,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 18,
                       ),
                     ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(ch.name,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                  color: AppTheme.textPrimary)),
-                          if (ch.subjects.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(ch.subjects.join('、'),
-                                style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppTheme.textSecondary)),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const Icon(Icons.chevron_right,
-                        color: AppTheme.textHint, size: 20),
-                  ],
+                  ),
                 ),
-              ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(ch.name,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                              color: AppTheme.textPrimary)),
+                      if (ch.subjects.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(ch.subjects.join('、'),
+                            style: const TextStyle(
+                                fontSize: 12, color: AppTheme.textSecondary)),
+                      ],
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right,
+                    color: AppTheme.textHint, size: 20),
+              ],
             ),
           ),
         );
@@ -153,9 +140,8 @@ class _PracticeScreenState extends State<PracticeScreen> {
     return Column(
       children: [
         // 进度
-        Container(
+        GlassPanel(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          color: Colors.white,
           child: Row(
             children: [
               Expanded(
@@ -165,8 +151,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
                     value: provider.progress,
                     minHeight: 6,
                     backgroundColor: AppTheme.divider,
-                    valueColor:
-                        const AlwaysStoppedAnimation(AppTheme.primary),
+                    valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
                   ),
                 ),
               ),
@@ -237,63 +222,50 @@ class _PracticeScreenState extends State<PracticeScreen> {
                   }
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
-                    child: Material(
-                      color: bg ?? Colors.white,
-                      borderRadius: BorderRadius.circular(14),
-                      child: InkWell(
-                        onTap: result == null
-                            ? () => provider.submitAnswer(entry.key)
-                            : null,
-                        borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: border ?? AppTheme.divider,
-                              width: border != null ? 1.5 : 1,
+                    child: GlassCard(
+                      onTap: result == null
+                          ? () => provider.submitAnswer(entry.key)
+                          : null,
+                      radius: 14,
+                      padding: const EdgeInsets.all(16),
+                      tint: bg ?? AppTheme.glassFill,
+                      borderColor: border ?? AppTheme.glassStroke,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color:
+                                  border != null ? border : Colors.transparent,
+                              border: Border.all(
+                                color: border ?? AppTheme.textSecondary,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                entry.key,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                  color: border != null
+                                      ? Colors.white
+                                      : AppTheme.textSecondary,
+                                ),
+                              ),
                             ),
                           ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 28,
-                                height: 28,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: border != null
-                                      ? border
-                                      : Colors.transparent,
-                                  border: Border.all(
-                                    color: border ?? AppTheme.textSecondary,
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    entry.key,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 13,
-                                      color: border != null
-                                          ? Colors.white
-                                          : AppTheme.textSecondary,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Text(entry.value,
-                                    style: const TextStyle(
-                                        height: 1.4, fontSize: 15)),
-                              ),
-                              if (trailing != null)
-                                Icon(trailing,
-                                    color: border, size: 22),
-                            ],
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Text(entry.value,
+                                style:
+                                    const TextStyle(height: 1.4, fontSize: 15)),
                           ),
-                        ),
+                          if (trailing != null)
+                            Icon(trailing, color: border, size: 22),
+                        ],
                       ),
                     ),
                   );
@@ -301,15 +273,12 @@ class _PracticeScreenState extends State<PracticeScreen> {
                 // 解析
                 if (result != null && result.explanation != null) ...[
                   const SizedBox(height: 20),
-                  Container(
+                  GlassCard(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primary.withOpacity(0.04),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                          color: AppTheme.primary.withOpacity(0.1)),
-                    ),
+                    radius: 14,
+                    tint: AppTheme.primary.withOpacity(0.08),
+                    borderColor: AppTheme.primary.withOpacity(0.12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -341,17 +310,8 @@ class _PracticeScreenState extends State<PracticeScreen> {
         ),
         // 底部操作
         if (result != null)
-          Container(
+          GlassPanel(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                    color: Color(0x0A000000),
-                    blurRadius: 8,
-                    offset: Offset(0, -2)),
-              ],
-            ),
             child: SafeArea(
               child: SizedBox(
                 width: double.infinity,
@@ -360,7 +320,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
                   onPressed: () => provider.isLastQuestion
                       ? provider.reset()
                       : provider.nextQuestion(),
-                  child: Text(provider.isLastQuestion ? '完成练习' : '下一题'),
+                  child: Text(provider.isLastQuestion ? '完成刷题' : '下一题'),
                 ),
               ),
             ),

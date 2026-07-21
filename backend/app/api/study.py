@@ -37,6 +37,32 @@ async def create_study_plan(
     db.add(db_plan)
     await db.commit()
     await db.refresh(db_plan)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    task_result = await db.execute(
+        select(DailyTask).where(
+            DailyTask.user_id == current_user.id,
+            DailyTask.date == today
+        )
+    )
+    task = task_result.scalar_one_or_none()
+    if task:
+        task.plan_id = db_plan.id
+        task.target_questions = db_plan.daily_questions
+        task.target_chapters = db_plan.target_chapters
+        task.is_completed = task.completed_questions >= db_plan.daily_questions
+    else:
+        task = DailyTask(
+            user_id=current_user.id,
+            plan_id=db_plan.id,
+            date=today,
+            target_questions=db_plan.daily_questions,
+            completed_questions=0,
+            target_chapters=db_plan.target_chapters
+        )
+        db.add(task)
+    await db.commit()
+
     return db_plan
 
 
@@ -83,16 +109,15 @@ async def get_today_task(
         )
     )
     task = result.scalar_one_or_none()
-    if not task:
-        # 创建今日任务
-        plan_result = await db.execute(
-            select(StudyPlan).where(
-                StudyPlan.user_id == current_user.id,
-                StudyPlan.is_active == True
-            ).order_by(StudyPlan.created_at.desc()).limit(1)
-        )
-        plan = plan_result.scalar_one_or_none()
+    plan_result = await db.execute(
+        select(StudyPlan).where(
+            StudyPlan.user_id == current_user.id,
+            StudyPlan.is_active == True
+        ).order_by(StudyPlan.created_at.desc()).limit(1)
+    )
+    plan = plan_result.scalar_one_or_none()
 
+    if not task:
         task = DailyTask(
             user_id=current_user.id,
             plan_id=plan.id if plan else None,
@@ -101,6 +126,13 @@ async def get_today_task(
             completed_questions=0
         )
         db.add(task)
+        await db.commit()
+        await db.refresh(task)
+    elif plan and task.plan_id != plan.id:
+        task.plan_id = plan.id
+        task.target_questions = plan.daily_questions
+        task.target_chapters = plan.target_chapters
+        task.is_completed = task.completed_questions >= plan.daily_questions
         await db.commit()
         await db.refresh(task)
     return task

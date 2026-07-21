@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/providers/study_provider.dart';
+import '../../../data/providers/question_provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/app_messenger.dart';
+import '../practice/practice_screen.dart';
 
 class StudyScreen extends StatefulWidget {
   const StudyScreen({super.key});
@@ -54,8 +57,8 @@ class _StudyScreenState extends State<StudyScreen>
               indicatorSize: TabBarIndicatorSize.tab,
               labelColor: Colors.white,
               unselectedLabelColor: AppTheme.textSecondary,
-              labelStyle: const TextStyle(
-                  fontWeight: FontWeight.w600, fontSize: 13),
+              labelStyle:
+                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
               unselectedLabelStyle: const TextStyle(fontSize: 13),
               dividerColor: Colors.transparent,
               tabs: const [
@@ -106,10 +109,7 @@ class _TodayTab extends StatelessWidget {
                         padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
-                            colors: [
-                              AppTheme.primary,
-                              AppTheme.primaryLight
-                            ],
+                            colors: [AppTheme.primary, AppTheme.primaryLight],
                           ),
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -131,9 +131,8 @@ class _TodayTab extends StatelessWidget {
                                     strokeWidth: 10,
                                     backgroundColor:
                                         Colors.white.withOpacity(0.2),
-                                    valueColor:
-                                        const AlwaysStoppedAnimation(
-                                            Colors.white),
+                                    valueColor: const AlwaysStoppedAnimation(
+                                        Colors.white),
                                   ),
                                   Column(
                                     children: [
@@ -148,8 +147,7 @@ class _TodayTab extends StatelessWidget {
                                       Text(
                                         '${task.completedQuestions}/${task.targetQuestions}',
                                         style: TextStyle(
-                                          color:
-                                              Colors.white.withOpacity(0.8),
+                                          color: Colors.white.withOpacity(0.8),
                                           fontSize: 14,
                                         ),
                                       ),
@@ -190,147 +188,195 @@ class _PlanTab extends StatelessWidget {
         if (provider.isLoading) {
           return const Center(child: CircularProgressIndicator());
         }
-        return Scaffold(
-          backgroundColor: AppTheme.surface,
-          floatingActionButton: FloatingActionButton(
-            backgroundColor: AppTheme.primary,
-            onPressed: () => _showCreatePlanDialog(context),
-            child: const Icon(Icons.add_rounded, color: Colors.white),
-          ),
-          body: provider.plans.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.event_note_outlined,
-                          size: 64, color: AppTheme.textHint),
-                      const SizedBox(height: 16),
-                      const Text('暂无学习计划',
-                          style: TextStyle(
-                              fontSize: 16,
-                              color: AppTheme.textSecondary)),
-                      const SizedBox(height: 8),
-                      const Text('点击右下角创建',
-                          style: TextStyle(color: AppTheme.textHint)),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(20),
-                  itemCount: provider.plans.length,
-                  itemBuilder: (context, index) {
-                    final plan = provider.plans[index];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border:
-                              Border.all(color: AppTheme.divider),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 40,
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primary
-                                        .withOpacity(0.1),
-                                    borderRadius:
-                                        BorderRadius.circular(12),
+        return Stack(
+          children: [
+            provider.plans.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 96),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.event_note_outlined,
+                              size: 64, color: AppTheme.textHint),
+                          const SizedBox(height: 16),
+                          const Text('暂无学习计划',
+                              style: TextStyle(
+                                  fontSize: 16, color: AppTheme.textSecondary)),
+                          const SizedBox(height: 8),
+                          const Text('创建计划后，按当前考试目标推进复习',
+                              style: TextStyle(color: AppTheme.textHint)),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 112),
+                    itemCount: provider.plans.length,
+                    itemBuilder: (context, index) {
+                      final plan = provider.plans[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: AppTheme.divider),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.primary.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(Icons.menu_book_rounded,
+                                        color: AppTheme.primary, size: 20),
                                   ),
-                                  child: const Icon(
-                                      Icons.menu_book_rounded,
-                                      color: AppTheme.primary,
-                                      size: 20),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(plan.title ?? '学习计划',
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(plan.title ?? '学习计划',
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w600)),
+                                        Text(
+                                          '${plan.dailyQuestions ?? 20} 题/天',
                                           style: const TextStyle(
-                                              fontWeight:
-                                                  FontWeight.w600)),
-                                      Text(
-                                        '${plan.dailyQuestions ?? 20} 题/天',
-                                        style: const TextStyle(
-                                            fontSize: 12,
-                                            color:
-                                                AppTheme.textSecondary),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: plan.isActive
-                                        ? AppTheme.success
-                                            .withOpacity(0.1)
-                                        : AppTheme.accent
-                                            .withOpacity(0.1),
-                                    borderRadius:
-                                        BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    plan.isActive ? '已完成' : '进行中',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: plan.isActive
-                                          ? AppTheme.success
-                                          : AppTheme.accent,
+                                              fontSize: 12,
+                                              color: AppTheme.textSecondary),
+                                        ),
+                                      ],
                                     ),
                                   ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: plan.isActive
+                                          ? AppTheme.success.withOpacity(0.1)
+                                          : AppTheme.accent.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      plan.isActive ? '已完成' : '进行中',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: plan.isActive
+                                            ? AppTheme.success
+                                            : AppTheme.accent,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 44,
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _startPlanStudy(context),
+                                  icon: const Icon(Icons.play_arrow_rounded,
+                                      size: 20),
+                                  label: const Text('开始学习'),
                                 ),
-                              ],
-                            ),
-                          ],
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 88,
+              child: SafeArea(
+                top: false,
+                child: SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _showCreatePlanDialog(context),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('创建学习计划'),
+                  ),
                 ),
+              ),
+            ),
+          ],
         );
       },
     );
   }
 
+  void _startPlanStudy(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const PracticeScreen()),
+    );
+  }
+
   void _showCreatePlanDialog(BuildContext context) {
+    final examCategory = context.read<QuestionProvider>().examCategory;
     final titleCtl = TextEditingController();
     var dailyQ = 30;
+    var isSubmitting = false;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20)),
-        title: const Text('创建学习计划',
-            style: TextStyle(fontWeight: FontWeight.w700)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title:
+            const Text('创建学习计划', style: TextStyle(fontWeight: FontWeight.w700)),
         content: StatefulBuilder(
           builder: (ctx, setInnerState) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.primary.withOpacity(0.12)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.flag_rounded,
+                        color: AppTheme.primary, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      '当前目标：$examCategory',
+                      style: const TextStyle(
+                        color: AppTheme.primary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
               TextField(
                 controller: titleCtl,
-                decoration: const InputDecoration(
-                    labelText: '计划名称',
-                    hintText: '例如: 内科专项复习'),
+                enabled: !isSubmitting,
+                decoration: InputDecoration(
+                    labelText: '计划名称', hintText: '例如: $examCategory 30 天冲刺'),
               ),
               const SizedBox(height: 16),
               Row(
                 children: [
                   const Text('每日目标: ',
-                      style: TextStyle(
-                          color: AppTheme.textSecondary)),
+                      style: TextStyle(color: AppTheme.textSecondary)),
                   Expanded(
                     child: Slider(
                       value: dailyQ.toDouble(),
@@ -339,13 +385,13 @@ class _PlanTab extends StatelessWidget {
                       divisions: 9,
                       label: '$dailyQ',
                       activeColor: AppTheme.primary,
-                      onChanged: (v) =>
-                          setInnerState(() => dailyQ = v.toInt()),
+                      onChanged: isSubmitting
+                          ? null
+                          : (v) => setInnerState(() => dailyQ = v.toInt()),
                     ),
                   ),
                   Text('$dailyQ',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600)),
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
                 ],
               ),
             ],
@@ -353,20 +399,61 @@ class _PlanTab extends StatelessWidget {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
               child: const Text('取消')),
-          ElevatedButton(
-            onPressed: () {
-              if (titleCtl.text.isEmpty) return;
-              context.read<StudyProvider>().createStudyPlan(
-                    title: titleCtl.text,
-                    startDate: DateTime.now(),
-                    endDate: DateTime.now().add(const Duration(days: 30)),
-                    dailyQuestions: dailyQ,
-                  );
-              Navigator.pop(ctx);
-            },
-            child: const Text('创建'),
+          StatefulBuilder(
+            builder: (ctx, setActionState) => ElevatedButton(
+              onPressed: isSubmitting
+                  ? null
+                  : () async {
+                      final title = titleCtl.text.trim();
+                      if (title.isEmpty) {
+                        rootScaffoldMessengerKey.currentState?.showSnackBar(
+                          const SnackBar(content: Text('请输入计划名称')),
+                        );
+                        return;
+                      }
+
+                      setActionState(() => isSubmitting = true);
+                      final provider = context.read<StudyProvider>();
+                      final success = await provider.createStudyPlan(
+                        title: title,
+                        startDate: DateTime.now(),
+                        endDate: DateTime.now().add(const Duration(days: 30)),
+                        dailyQuestions: dailyQ,
+                      );
+
+                      if (!context.mounted) return;
+                      if (success) {
+                        Navigator.pop(ctx);
+                        rootScaffoldMessengerKey.currentState?.showSnackBar(
+                          const SnackBar(
+                            content: Text('学习计划已创建'),
+                            backgroundColor: AppTheme.success,
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      } else {
+                        setActionState(() => isSubmitting = false);
+                        rootScaffoldMessengerKey.currentState?.showSnackBar(
+                          SnackBar(
+                            content: Text(provider.error ?? '创建学习计划失败'),
+                            backgroundColor: AppTheme.error,
+                          ),
+                        );
+                      }
+                    },
+              child: isSubmitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('创建'),
+            ),
           ),
         ],
       ),
@@ -441,9 +528,7 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     _StatChip(
-                        label: '错题总数',
-                        value: '$total',
-                        color: AppTheme.error),
+                        label: '错题总数', value: '$total', color: AppTheme.error),
                     _StatChip(
                         label: '已掌握',
                         value: '$mastered',
@@ -494,8 +579,7 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
                           const SizedBox(width: 14),
                           Expanded(
                             child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text('错题 #${w.questionId}',
                                     style: const TextStyle(
@@ -508,14 +592,12 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
                                       const SizedBox(width: 8),
                                     ],
                                     Icon(Icons.refresh_rounded,
-                                        size: 14,
-                                        color: AppTheme.textHint),
+                                        size: 14, color: AppTheme.textHint),
                                     const SizedBox(width: 2),
                                     Text('${w.reviewCount} 次',
                                         style: const TextStyle(
                                             fontSize: 12,
-                                            color:
-                                                AppTheme.textSecondary)),
+                                            color: AppTheme.textSecondary)),
                                   ],
                                 ),
                               ],
@@ -555,13 +637,11 @@ class _StatChip extends StatelessWidget {
       children: [
         Text(value,
             style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: color)),
+                fontSize: 24, fontWeight: FontWeight.w700, color: color)),
         const SizedBox(height: 2),
         Text(label,
-            style: const TextStyle(
-                fontSize: 12, color: AppTheme.textSecondary)),
+            style:
+                const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
       ],
     );
   }

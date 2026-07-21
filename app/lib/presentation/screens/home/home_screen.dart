@@ -2,17 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/providers/auth_provider.dart';
+import '../../../data/providers/question_provider.dart';
 import '../../../data/providers/study_provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../widgets/app_glass.dart';
 import '../practice/practice_screen.dart';
 import '../exam/exam_screen.dart';
 import '../ai_chat/ai_chat_screen.dart';
+import '../course/course_screen.dart';
 import '../study/study_screen.dart';
-import '../wrong/wrong_screen.dart';
 import '../stats/stats_screen.dart';
 import '../auth/login_screen.dart';
 import '../../../data/models/study.dart';
-import '../ai_chat/ai_chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -57,39 +58,40 @@ class HomeScreenState extends State<HomeScreen> {
         final pages = <Widget>[
           _HomeTab(homeState: this),
           const PracticeScreen(),
+          const CourseScreen(),
           const ExamScreen(),
           const _StudyTab(),
         ];
 
-        return Scaffold(
+        return GlassScaffold(
           body: IndexedStack(index: currentIndex, children: pages),
           floatingActionButton: FloatingActionButton.small(
             onPressed: _openAIChat,
             backgroundColor: AppTheme.primary,
-            child: const Text("AI", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
+            elevation: 0,
+            child: const Text("AI",
+                style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16)),
           ),
-          bottomNavigationBar: Container(
+          bottomNavigationBar: GlassPanel(
             padding: const EdgeInsets.only(top: 4),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                    color: Color(0x1A000000),
-                    blurRadius: 16,
-                    offset: Offset(0, -4)),
-              ],
-            ),
             child: SafeArea(
               child: BottomNavigationBar(
+                type: BottomNavigationBarType.fixed,
+                backgroundColor: Colors.transparent,
                 currentIndex: currentIndex,
                 onTap: (i) => goToTab(i),
                 items: const [
                   BottomNavigationBarItem(
                       icon: Icon(Icons.home_rounded), label: '首页'),
                   BottomNavigationBarItem(
-                      icon: Icon(Icons.quiz_outlined), label: '练习'),
+                      icon: Icon(Icons.quiz_outlined), label: '刷题'),
                   BottomNavigationBarItem(
-                      icon: Icon(Icons.assignment_outlined), label: '考试'),
+                      icon: Icon(Icons.video_library_outlined), label: '课程'),
+                  BottomNavigationBarItem(
+                      icon: Icon(Icons.assignment_outlined), label: '模考'),
                   BottomNavigationBarItem(
                       icon: Icon(Icons.menu_book_outlined), label: '学习'),
                 ],
@@ -118,6 +120,7 @@ class _HomeTabState extends State<_HomeTab> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<StudyProvider>().loadStudyPlans();
       context.read<StudyProvider>().loadTodayTask();
       context.read<StudyProvider>().loadTodayStats();
     });
@@ -152,11 +155,14 @@ class _HomeTabState extends State<_HomeTab> {
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;
     final study = context.watch<StudyProvider>();
+    final examCategory = context.watch<QuestionProvider>().examCategory;
     final task = study.todayTask;
+    final plan = study.todayTaskPlan;
     final stats = study.todayStats;
 
     return RefreshIndicator(
       onRefresh: () async {
+        await study.loadStudyPlans();
         await study.loadTodayTask();
         await study.loadTodayStats();
       },
@@ -164,7 +170,7 @@ class _HomeTabState extends State<_HomeTab> {
         physics: const AlwaysScrollableScrollPhysics(),
         child: Column(
           children: [
-            _buildHeader(user, stats),
+            _buildHeader(user, stats, examCategory, task, plan),
             const SizedBox(height: 20),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -179,10 +185,12 @@ class _HomeTabState extends State<_HomeTab> {
                   const SizedBox(height: 14),
                   _buildQuickActions(),
                   const SizedBox(height: 24),
-                  _buildSectionHeader('今日数据', () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const StatsScreen()))),
+                  _buildSectionHeader(
+                      '今日数据',
+                      () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const StatsScreen()))),
                   const SizedBox(height: 14),
                   _buildStatsRow(stats),
                   if (task != null) ...[
@@ -193,16 +201,8 @@ class _HomeTabState extends State<_HomeTab> {
                             fontWeight: FontWeight.w700,
                             color: AppTheme.textPrimary)),
                     const SizedBox(height: 14),
-                    _buildTaskCard(task),
+                    _buildTaskCard(task, plan),
                   ],
-                  const SizedBox(height: 24),
-                  const Text('推荐学习',
-                      style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.textPrimary)),
-                  const SizedBox(height: 14),
-                  _buildRecommendSection(),
                   const SizedBox(height: 32),
                 ],
               ),
@@ -213,54 +213,133 @@ class _HomeTabState extends State<_HomeTab> {
     );
   }
 
-  Widget _buildHeader(user, stats) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [AppTheme.primary, AppTheme.primaryLight]),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '你好，${user?.fullName ?? user?.username ?? "同学"}',
-                    style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white),
+  Widget _buildHeader(
+      user, stats, String examCategory, DailyTask? task, StudyPlan? plan) {
+    final targetQuestions = task?.targetQuestions ?? plan?.dailyQuestions ?? 40;
+    final estimatedMinutes = (targetQuestions * 0.7).round();
+    final hasPlan = plan != null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: GlassCard(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+        tint: Colors.white.withOpacity(0.70),
+        borderColor: Colors.white.withOpacity(0.86),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$examCategory备考',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${user?.fullName ?? user?.username ?? "医生"} · 距考试 42 天',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.textSecondary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
-                  Text('继续今天的医考学习吧',
-                      style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.white.withOpacity(0.8))),
+                ),
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentLight.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.logout_rounded,
+                        color: AppTheme.primary, size: 22),
+                    onPressed: _confirmLogout,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _ExamCategorySelector(selected: examCategory),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: AppTheme.accentLight.withOpacity(0.22),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.fiber_manual_record,
+                      size: 8, color: AppTheme.primary),
+                  const SizedBox(width: 6),
+                  Text(
+                    _focusText(examCategory),
+                    style: const TextStyle(
+                      color: AppTheme.primary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
                 ],
               ),
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.logout_rounded,
-                      color: Colors.white, size: 22),
-                  onPressed: _confirmLogout,
-                ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              hasPlan
+                  ? '今日完成 $targetQuestions 题，预计 $estimatedMinutes 分钟'
+                  : '先创建学习计划，再生成今日任务',
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.textPrimary,
               ),
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              hasPlan
+                  ? '来自「${plan.title}」，AI 会结合错题调整今日复习优先级。'
+                  : '创建计划后，首页会自动生成每天的刷题目标和学习入口。',
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.45,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => widget.homeState.goToTab(hasPlan ? 1 : 4),
+                    child: Text(hasPlan ? '开始今日任务' : '创建学习计划'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                OutlinedButton(
+                  onPressed: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const StudyScreen())),
+                  child: const Text('查看计划'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -293,26 +372,41 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildQuickActions() {
-    return Row(
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 1.55,
       children: [
-        Expanded(
-          child: _QuickActionCard(
-            icon: Icons.quiz_rounded,
-            title: '章节练习',
-            subtitle: '按章节刷题',
-            color: AppTheme.primary,
-            onTap: () => widget.homeState.goToTab(1),
-          ),
+        _QuickActionCard(
+          icon: Icons.quiz_rounded,
+          title: '章节刷题',
+          subtitle: '按章节刷题',
+          color: AppTheme.primary,
+          onTap: () => widget.homeState.goToTab(1),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _QuickActionCard(
-            icon: Icons.assignment_rounded,
-            title: '模拟考试',
-            subtitle: '仿真考场',
-            color: AppTheme.accent,
-            onTap: () => widget.homeState.goToTab(2),
-          ),
+        _QuickActionCard(
+          icon: Icons.assignment_rounded,
+          title: '模考',
+          subtitle: '仿真考场',
+          color: AppTheme.accent,
+          onTap: () => widget.homeState.goToTab(3),
+        ),
+        _QuickActionCard(
+          icon: Icons.live_tv_rounded,
+          title: '直播课',
+          subtitle: '名师带学',
+          color: AppTheme.error,
+          onTap: () => widget.homeState.goToTab(2),
+        ),
+        _QuickActionCard(
+          icon: Icons.video_library_rounded,
+          title: '录播课',
+          subtitle: '系统精讲',
+          color: AppTheme.success,
+          onTap: () => widget.homeState.goToTab(2),
         ),
       ],
     );
@@ -350,15 +444,12 @@ class _HomeTabState extends State<_HomeTab> {
             .toList());
   }
 
-  Widget _buildTaskCard(DailyTask task) {
+  Widget _buildTaskCard(DailyTask task, StudyPlan? plan) {
     final percent = task.completedQuestions / task.targetQuestions;
-    return Container(
+    return GlassCard(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppTheme.primary.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.primary.withOpacity(0.12)),
-      ),
+      tint: AppTheme.primary.withOpacity(0.09),
+      borderColor: AppTheme.primary.withOpacity(0.12),
       child: Row(
         children: [
           Container(
@@ -388,6 +479,14 @@ class _HomeTabState extends State<_HomeTab> {
                       fontSize: 15,
                       color: AppTheme.textPrimary),
                 ),
+                if (plan != null) ...[
+                  const SizedBox(height: 4),
+                  Text('关联计划：${plan.title}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 12, color: AppTheme.textSecondary)),
+                ],
                 const SizedBox(height: 6),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
@@ -395,8 +494,7 @@ class _HomeTabState extends State<_HomeTab> {
                     value: percent.clamp(0.0, 1.0),
                     minHeight: 6,
                     backgroundColor: AppTheme.divider,
-                    valueColor:
-                        const AlwaysStoppedAnimation(AppTheme.primary),
+                    valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -411,35 +509,58 @@ class _HomeTabState extends State<_HomeTab> {
     );
   }
 
-  Widget _buildRecommendSection() {
-    return Column(
-      children: [
-        _RecommendItem(
-            icon: Icons.replay_rounded,
-            title: '错题复习',
-            desc:
-                '${context.watch<StudyProvider>().wrongQuestions.length} 道待复习',
-            color: AppTheme.error,
-            onTap: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const WrongScreen()))),
-        _RecommendItem(
-            icon: Icons.bar_chart_rounded,
-            title: '学习统计',
-            desc: '查看学习成果',
-            color: AppTheme.accent,
-            onTap: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const StatsScreen()))),
-        _RecommendItem(
-            icon: Icons.calendar_month_rounded,
-            title: '学习计划',
-            desc: '制定个性化计划',
-            color: AppTheme.primaryLight,
-            onTap: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const StudyScreen()))),
-      ].map((e) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: e,
-          )).toList(),
+  String _focusText(String category) {
+    switch (category) {
+      case '执业资格':
+        return '今日重点：基础医学 + 高频考点';
+      case '初级职称':
+        return '今日重点：专业基础 + 常见题型';
+      case '中级职称':
+        return '今日重点：专业实践 + 病例分析';
+      case '高级职称':
+        return '今日重点：专科前沿 + 病例综合';
+      default:
+        return '今日重点：高频考点 + 错题复盘';
+    }
+  }
+}
+
+class _ExamCategorySelector extends StatelessWidget {
+  final String selected;
+  const _ExamCategorySelector({required this.selected});
+
+  static const categories = ['执业资格', '初级职称', '中级职称', '高级职称'];
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: categories.map((category) {
+        final isSelected = category == selected;
+        return ChoiceChip(
+          label: Text(category),
+          selected: isSelected,
+          showCheckmark: false,
+          labelStyle: TextStyle(
+            color: isSelected ? Colors.white : AppTheme.textSecondary,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+          selectedColor: AppTheme.primary,
+          backgroundColor: Colors.white.withOpacity(0.72),
+          side: BorderSide(
+            color: isSelected
+                ? AppTheme.primary
+                : AppTheme.primary.withOpacity(0.12),
+          ),
+          onSelected: (_) {
+            final provider = context.read<QuestionProvider>();
+            provider.setExamCategory(category);
+            provider.loadChapters();
+          },
+        );
+      }).toList(),
     );
   }
 }
@@ -462,40 +583,32 @@ class _QuickActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return GlassCard(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: AppTheme.cardShadow,
-          border: Border.all(color: AppTheme.divider),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(icon, color: color, size: 22),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(14),
             ),
-            const SizedBox(height: 14),
-            Text(title,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                    color: AppTheme.textPrimary)),
-            const SizedBox(height: 2),
-            Text(subtitle,
-                style: const TextStyle(
-                    fontSize: 12, color: AppTheme.textSecondary)),
-          ],
-        ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(height: 14),
+          Text(title,
+              style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  color: AppTheme.textPrimary)),
+          const SizedBox(height: 2),
+          Text(subtitle,
+              style:
+                  const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        ],
       ),
     );
   }
@@ -516,91 +629,20 @@ class _StatChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return GlassCard(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: AppTheme.cardShadow,
-        border: Border.all(color: AppTheme.divider),
-      ),
+      radius: 14,
       child: Column(
         children: [
           Icon(icon, color: color, size: 20),
           const SizedBox(height: 6),
           Text(value,
               style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: color)),
+                  fontSize: 16, fontWeight: FontWeight.w700, color: color)),
           Text(label,
-              style: const TextStyle(
-                  fontSize: 10, color: AppTheme.textSecondary)),
+              style:
+                  const TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
         ],
-      ),
-    );
-  }
-}
-
-class _RecommendItem extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String desc;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _RecommendItem({
-    required this.icon,
-    required this.title,
-    required this.desc,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: AppTheme.cardShadow,
-          border: Border.all(color: AppTheme.divider),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(icon, color: color, size: 22),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                          color: AppTheme.textPrimary)),
-                  const SizedBox(height: 2),
-                  Text(desc,
-                      style: const TextStyle(
-                          fontSize: 13, color: AppTheme.textSecondary)),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right,
-                color: AppTheme.textHint, size: 20),
-          ],
-        ),
       ),
     );
   }

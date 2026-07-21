@@ -34,6 +34,19 @@ class QuestionCreate(QuestionBase):
     pass
 
 
+class QuestionUpdate(BaseModel):
+    chapter_id: Optional[int] = None
+    question_type: Optional[str] = None
+    content: Optional[str] = None
+    options: Optional[Dict[str, str]] = None
+    answer: Optional[str] = None
+    explanation: Optional[str] = None
+    difficulty: Optional[int] = None
+    is_real_exam: Optional[bool] = None
+    exam_year: Optional[int] = None
+    知识点: Optional[List[str]] = None
+
+
 class QuestionResponse(QuestionBase):
     id: int
     created_at: datetime

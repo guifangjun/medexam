@@ -25,6 +25,12 @@ class ApiConstants {
   static const String wrong = '$study/wrong';
   static const String statsToday = '$study/stats/today';
   static const String statsOverview = '$study/stats/overview';
+
+  static const String admin = '/api/admin';
+  static const String adminLogin = '$admin/auth/login';
+  static const String adminMe = '$admin/auth/me';
+  static const String adminQuestions = '$admin/questions';
+  static const String adminCourses = '$admin/courses';
 }
 
 class AppConstants {

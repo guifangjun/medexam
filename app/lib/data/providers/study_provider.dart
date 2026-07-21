@@ -15,6 +15,22 @@ class StudyProvider extends ChangeNotifier {
 
   List<StudyPlan> get plans => _plans;
   DailyTask? get todayTask => _todayTask;
+  StudyPlan? get activePlan {
+    for (final plan in _plans) {
+      if (plan.isActive) return plan;
+    }
+    return _plans.isNotEmpty ? _plans.first : null;
+  }
+
+  StudyPlan? get todayTaskPlan {
+    final taskPlanId = _todayTask?.planId;
+    if (taskPlanId == null) return activePlan;
+    for (final plan in _plans) {
+      if (plan.id == taskPlanId) return plan;
+    }
+    return activePlan;
+  }
+
   List<WrongQuestion> get wrongQuestions => _wrongQuestions;
   StudyStats? get todayStats => _todayStats;
   StatsOverview? get overview => _overview;
@@ -43,9 +59,8 @@ class StudyProvider extends ChangeNotifier {
       notifyListeners();
 
       final res = await _api.getStudyPlans();
-      _plans = (res.data as List)
-          .map((json) => StudyPlan.fromJson(json))
-          .toList();
+      _plans =
+          (res.data as List).map((json) => StudyPlan.fromJson(json)).toList();
       _error = null;
     } catch (e) {
       _error = '加载学习计划失败';
@@ -68,6 +83,7 @@ class StudyProvider extends ChangeNotifier {
 
       await _api.createStudyPlan({
         'title': title,
+        'plan_type': 'daily',
         'start_date': startDate.toIso8601String(),
         'end_date': endDate.toIso8601String(),
         'target_chapters': targetChapters,
@@ -75,6 +91,7 @@ class StudyProvider extends ChangeNotifier {
       });
 
       await loadStudyPlans();
+      await loadTodayTask();
       return true;
     } catch (e) {
       _error = '创建学习计划失败';

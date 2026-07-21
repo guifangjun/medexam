@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.init_db import init_database
 from app.api import deps
-from app.api import questions, ai_chat, study
+from app.api import admin, questions, ai_chat, study
 
 
 @asynccontextmanager
@@ -28,6 +28,7 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(deps.router)
+app.include_router(admin.router)
 app.include_router(questions.router)
 app.include_router(ai_chat.router)
 app.include_router(study.router)

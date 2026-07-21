@@ -18,10 +18,10 @@ class _ExamScreenState extends State<ExamScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('模拟考试')),
+      appBar: AppBar(title: const Text('模考')),
       body: Consumer<QuestionProvider>(
         builder: (context, provider, _) {
-          if (provider.hasQuestions && provider.hasQuestions) {
+          if (provider.hasQuestions) {
             return _ExamSessionScreen(questionCount: _selectedCount);
           }
           return _buildSetupView();
@@ -31,6 +31,7 @@ class _ExamScreenState extends State<ExamScreen> {
   }
 
   Widget _buildSetupView() {
+    final examCategory = context.watch<QuestionProvider>().examCategory;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -58,13 +59,14 @@ class _ExamScreenState extends State<ExamScreen> {
                       size: 32, color: Colors.white),
                 ),
                 const SizedBox(height: 16),
-                const Text('模拟考试',
-                    style: TextStyle(
+                Text('$examCategory模考',
+                    style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w700,
                         color: Colors.white)),
                 const SizedBox(height: 6),
-                const Text('仿真考场 · 限时作答',
+                const Text('按当前考试目标生成仿真练习',
+                    textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white70, fontSize: 14)),
               ],
             ),
@@ -82,8 +84,7 @@ class _ExamScreenState extends State<ExamScreen> {
               return Expanded(
                 child: Padding(
                   padding: EdgeInsets.only(
-                      left: count == 25 ? 0 : 8,
-                      right: count == 100 ? 0 : 8),
+                      left: count == 25 ? 0 : 8, right: count == 100 ? 0 : 8),
                   child: GestureDetector(
                     onTap: () => setState(() => _selectedCount = count),
                     child: Container(
@@ -152,7 +153,7 @@ class _ExamScreenState extends State<ExamScreen> {
                     .loadExamQuestions(count: _selectedCount);
               },
               icon: const Icon(Icons.play_arrow_rounded),
-              label: const Text('开始考试'),
+              label: const Text('开始模考'),
             ),
           ),
           const SizedBox(height: 24),
@@ -162,12 +163,9 @@ class _ExamScreenState extends State<ExamScreen> {
                   color: AppTheme.textPrimary,
                   fontSize: 15)),
           const SizedBox(height: 12),
-          _RuleItem(
-              Icons.access_time_rounded, '限时作答', '按标准考试时间计时'),
-          _RuleItem(Icons.lock_outline_rounded, '不可回退',
-              '提交后不能返回修改'),
-          _RuleItem(Icons.bar_chart_rounded, '详细报告',
-              '考后查看知识点分析'),
+          _RuleItem(Icons.access_time_rounded, '限时作答', '按标准考试时间计时'),
+          _RuleItem(Icons.lock_outline_rounded, '不可回退', '提交后不能返回修改'),
+          _RuleItem(Icons.bar_chart_rounded, '详细报告', '考后查看知识点分析'),
         ],
       ),
     );
@@ -266,7 +264,9 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                 style: TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 18,
-                    color: _seconds < 120 ? AppTheme.error : AppTheme.textPrimary)),
+                    color: _seconds < 120
+                        ? AppTheme.error
+                        : AppTheme.textPrimary)),
             centerTitle: true,
             leading: IconButton(
               icon: const Icon(Icons.close),
@@ -359,8 +359,7 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                             borderRadius: BorderRadius.circular(14),
                             child: InkWell(
                               onTap: result == null
-                                  ? () =>
-                                      provider.submitAnswer(entry.key)
+                                  ? () => provider.submitAnswer(entry.key)
                                   : null,
                               borderRadius: BorderRadius.circular(14),
                               child: Container(
@@ -383,8 +382,8 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                                             ? border
                                             : Colors.transparent,
                                         border: Border.all(
-                                          color: border ??
-                                              AppTheme.textSecondary,
+                                          color:
+                                              border ?? AppTheme.textSecondary,
                                           width: 1.5,
                                         ),
                                       ),
@@ -395,8 +394,7 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                                                 fontSize: 13,
                                                 color: border != null
                                                     ? Colors.white
-                                                    : AppTheme
-                                                        .textSecondary)),
+                                                    : AppTheme.textSecondary)),
                                       ),
                                     ),
                                     const SizedBox(width: 14),
@@ -405,8 +403,7 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                                             style: const TextStyle(
                                                 height: 1.4, fontSize: 15))),
                                     if (trailing != null)
-                                      Icon(trailing,
-                                          color: border, size: 22),
+                                      Icon(trailing, color: border, size: 22),
                                   ],
                                 ),
                               ),
@@ -472,13 +469,11 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                       if (provider.currentIndex > 0)
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () =>
-                                provider.previousQuestion(),
+                            onPressed: () => provider.previousQuestion(),
                             child: const Text('上一题'),
                           ),
                         ),
-                      if (provider.currentIndex > 0)
-                        const SizedBox(width: 12),
+                      if (provider.currentIndex > 0) const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
                           onPressed: result == null

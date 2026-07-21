@@ -9,6 +9,7 @@ class ApiService {
 
   late Dio _dio;
   String? _token;
+  String? _adminToken;
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
@@ -30,15 +31,21 @@ class ApiService {
 
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
-        if (_token != null) {
+        if (options.path.startsWith(ApiConstants.admin) &&
+            _adminToken != null) {
+          options.headers['Authorization'] = 'Bearer $_adminToken';
+        } else if (_token != null) {
           options.headers['Authorization'] = 'Bearer $_token';
         }
         return handler.next(options);
       },
       onError: (error, handler) {
         if (error.response?.statusCode == 401) {
-          // Token 过期，清理存储
-          clearToken();
+          if (error.requestOptions.path.startsWith(ApiConstants.admin)) {
+            clearAdminToken();
+          } else {
+            clearToken();
+          }
         }
         return handler.next(error);
       },
@@ -66,6 +73,22 @@ class ApiService {
 
   bool get hasToken => _token != null;
 
+  Future<void> loadAdminToken() async {
+    _adminToken = await _secureStorage.read(key: 'admin_access_token');
+  }
+
+  Future<void> setAdminToken(String token) async {
+    _adminToken = token;
+    await _secureStorage.write(key: 'admin_access_token', value: token);
+  }
+
+  Future<void> clearAdminToken() async {
+    _adminToken = null;
+    await _secureStorage.delete(key: 'admin_access_token');
+  }
+
+  bool get hasAdminToken => _adminToken != null;
+
   // ============ Auth ============
 
   Future<Response> register(Map<String, dynamic> data) async {
@@ -87,6 +110,23 @@ class ApiService {
 
   Future<Response> getMe() async {
     return _dio.get(ApiConstants.me);
+  }
+
+  Future<Response> adminLogin(String username, String password) async {
+    return _dio.post(
+      ApiConstants.adminLogin,
+      data: {
+        'username': username,
+        'password': password,
+      },
+      options: Options(
+        contentType: Headers.formUrlEncodedContentType,
+      ),
+    );
+  }
+
+  Future<Response> getAdminMe() async {
+    return _dio.get(ApiConstants.adminMe);
   }
 
   Future<Response> updateMe(Map<String, dynamic> data) async {
@@ -119,6 +159,47 @@ class ApiService {
 
   Future<Response> submitQuestion(Map<String, dynamic> data) async {
     return _dio.post(ApiConstants.submit, data: data);
+  }
+
+  // ============ Admin ============
+
+  Future<Response> getAdminQuestions({String? keyword}) async {
+    return _dio.get(ApiConstants.adminQuestions, queryParameters: {
+      if (keyword != null && keyword.isNotEmpty) 'keyword': keyword,
+    });
+  }
+
+  Future<Response> createAdminQuestion(Map<String, dynamic> data) async {
+    return _dio.post(ApiConstants.adminQuestions, data: data);
+  }
+
+  Future<Response> updateAdminQuestion(
+      int questionId, Map<String, dynamic> data) async {
+    return _dio.put('${ApiConstants.adminQuestions}/$questionId', data: data);
+  }
+
+  Future<Response> deleteAdminQuestion(int questionId) async {
+    return _dio.delete('${ApiConstants.adminQuestions}/$questionId');
+  }
+
+  Future<Response> getAdminCourses({String? courseType}) async {
+    return _dio.get(ApiConstants.adminCourses, queryParameters: {
+      if (courseType != null && courseType.isNotEmpty)
+        'course_type': courseType,
+    });
+  }
+
+  Future<Response> createAdminCourse(Map<String, dynamic> data) async {
+    return _dio.post(ApiConstants.adminCourses, data: data);
+  }
+
+  Future<Response> updateAdminCourse(
+      int courseId, Map<String, dynamic> data) async {
+    return _dio.put('${ApiConstants.adminCourses}/$courseId', data: data);
+  }
+
+  Future<Response> deleteAdminCourse(int courseId) async {
+    return _dio.delete('${ApiConstants.adminCourses}/$courseId');
   }
 
   // ============ AI Chat ============

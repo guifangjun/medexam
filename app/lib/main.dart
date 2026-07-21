@@ -7,6 +7,7 @@ import 'data/providers/auth_provider.dart';
 import 'data/providers/question_provider.dart';
 import 'data/providers/study_provider.dart';
 import 'data/providers/ai_chat_provider.dart';
+import 'presentation/screens/admin/admin_screen.dart';
 import 'presentation/screens/home/home_screen.dart';
 
 void main() {
@@ -28,9 +29,14 @@ class MedExamApp extends StatelessWidget {
       child: MaterialApp(
         title: 'MedExam AI',
         theme: AppTheme.lightTheme,
+        themeMode: ThemeMode.light,
         debugShowCheckedModeBanner: false,
         scaffoldMessengerKey: rootScaffoldMessengerKey,
-        home: const HomeScreen(),
+        initialRoute: '/',
+        routes: {
+          '/': (_) => const HomeScreen(),
+          '/admin': (_) => const AdminScreen(),
+        },
       ),
     );
   }

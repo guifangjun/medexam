@@ -45,6 +45,7 @@ class StudyPlanResponse(StudyPlanBase):
 
 class DailyTaskResponse(BaseModel):
     id: int
+    plan_id: Optional[int]
     date: str
     target_questions: int
     completed_questions: int
