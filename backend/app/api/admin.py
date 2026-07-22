@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from sqlalchemy import select
@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.admin_user import AdminUser
 from app.models.course import Course
-from app.models.question import Question
+from app.models.question import Chapter, Question
 from app.schemas.admin_user import AdminUserResponse
 from app.schemas.course import CourseCreate, CourseResponse, CourseUpdate
 from app.schemas.question import QuestionCreate, QuestionResponse, QuestionUpdate
@@ -46,6 +46,28 @@ async def get_current_admin(
     return admin
 
 
+async def get_optional_admin(
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[AdminUser]:
+    if not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        admin_id: int = payload.get("admin_id")
+        scope: str = payload.get("scope")
+        if admin_id is None or scope != "admin":
+            return None
+    except JWTError:
+        return None
+    result = await db.execute(select(AdminUser).where(AdminUser.id == admin_id))
+    admin = result.scalar_one_or_none()
+    return admin if admin and admin.is_active else None
+
+
 @router.post("/auth/login", response_model=Token)
 async def admin_login(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -74,6 +96,7 @@ async def admin_me(current_admin: AdminUser = Depends(get_current_admin)):
 @router.get("/questions", response_model=List[QuestionResponse])
 async def list_questions(
     chapter_id: Optional[int] = None,
+    exam_category: Optional[str] = None,
     keyword: Optional[str] = None,
     limit: int = 100,
     current_admin: AdminUser = Depends(get_current_admin),
@@ -82,11 +105,12 @@ async def list_questions(
     query = select(Question).order_by(Question.created_at.desc()).limit(limit)
     if chapter_id:
         query = query.where(Question.chapter_id == chapter_id)
+    elif exam_category:
+        query = query.join(Chapter).where(Chapter.exam_category == exam_category)
     if keyword:
         query = query.where(Question.content.contains(keyword))
     result = await db.execute(query)
     return result.scalars().all()
-
 
 @router.post("/questions", response_model=QuestionResponse)
 async def create_question(
@@ -139,10 +163,12 @@ async def delete_question(
 async def list_courses(
     course_type: Optional[str] = None,
     exam_category: Optional[str] = None,
-    current_admin: AdminUser = Depends(get_current_admin),
+    current_admin: Optional[AdminUser] = Depends(get_optional_admin),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Course).order_by(Course.created_at.desc())
+    if current_admin is None:
+        query = query.where(Course.is_published == True)
     if course_type:
         query = query.where(Course.course_type == course_type)
     if exam_category:

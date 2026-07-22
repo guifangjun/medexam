@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../data/providers/question_provider.dart';
+import '../../../data/services/api_service.dart';
 import '../../widgets/app_glass.dart';
 
 class CourseScreen extends StatefulWidget {
@@ -15,11 +16,21 @@ class CourseScreen extends StatefulWidget {
 class _CourseScreenState extends State<CourseScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  final _api = ApiService();
+  var _isLoading = true;
+  String? _error;
+  List<_Course> _liveCourses = [];
+  List<_Course> _recordedCourses = [];
+  String? _loadedExamCategory;
+  int _loadRequestId = 0;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadCourses(context.read<QuestionProvider>().examCategory);
+    });
   }
 
   @override
@@ -31,6 +42,11 @@ class _CourseScreenState extends State<CourseScreen>
   @override
   Widget build(BuildContext context) {
     final examCategory = context.watch<QuestionProvider>().examCategory;
+    if (_loadedExamCategory != examCategory) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadCourses(examCategory);
+      });
+    }
 
     return GlassScaffold(
       appBar: AppBar(
@@ -69,18 +85,62 @@ class _CourseScreenState extends State<CourseScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _CourseList(
-            courses: _CourseCatalog.live(examCategory),
-            emptyText: '暂无直播课',
-          ),
-          _CourseList(
-            courses: _CourseCatalog.recorded(examCategory),
-            emptyText: '暂无录播课',
-          ),
-        ],
+        children: _isLoading
+            ? const [
+                Center(child: CircularProgressIndicator()),
+                Center(child: CircularProgressIndicator()),
+              ]
+            : [
+                _CourseList(
+                  courses: _liveCourses,
+                  emptyText: _error ?? '暂无课程',
+                ),
+                _CourseList(
+                  courses: _recordedCourses,
+                  emptyText: _error ?? '暂无课程',
+                ),
+              ],
       ),
     );
+  }
+
+  Future<void> _loadCourses(String examCategory) async {
+    final requestId = ++_loadRequestId;
+    setState(() {
+      _isLoading = true;
+      _error = null;
+      _loadedExamCategory = examCategory;
+    });
+    try {
+      final responses = await Future.wait([
+        _api.getPublishedCourses(
+          courseType: 'live',
+          examCategory: examCategory,
+        ),
+        _api.getPublishedCourses(
+          courseType: 'recorded',
+          examCategory: examCategory,
+        ),
+      ]);
+      if (!mounted || requestId != _loadRequestId) return;
+      final liveRes = responses[0];
+      final recordedRes = responses[1];
+      _liveCourses = List<Map<String, dynamic>>.from(liveRes.data)
+          .map(_Course.fromJson)
+          .toList();
+      _recordedCourses = List<Map<String, dynamic>>.from(recordedRes.data)
+          .map(_Course.fromJson)
+          .toList();
+    } catch (_) {
+      if (!mounted || requestId != _loadRequestId) return;
+      _error = '课程加载失败，请稍后重试';
+      _liveCourses = [];
+      _recordedCourses = [];
+    } finally {
+      if (mounted && requestId == _loadRequestId) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 }
 
@@ -273,70 +333,8 @@ class _Meta extends StatelessWidget {
   }
 }
 
-class _CourseCatalog {
-  static List<_Course> live(String category) => [
-        _Course(
-          title: '$category考前高频考点直播',
-          teacher: '主讲：三甲医院教研组',
-          time: '今晚 20:00',
-          lessons: '90 分钟',
-          typeLabel: '直播',
-          level: category,
-          icon: Icons.live_tv_rounded,
-          color: AppTheme.error,
-          isLive: true,
-        ),
-        _Course(
-          title: '$category病例题解题策略',
-          teacher: '主讲：临床命题研究老师',
-          time: '明晚 19:30',
-          lessons: '75 分钟',
-          typeLabel: '直播',
-          level: category,
-          icon: Icons.groups_rounded,
-          color: AppTheme.accent,
-          isLive: true,
-        ),
-      ];
-
-  static List<_Course> recorded(String category) => [
-        _Course(
-          title: '$category核心基础精讲',
-          teacher: '系统课 · 按大纲章节拆解',
-          time: '随到随学',
-          lessons: '32 讲',
-          typeLabel: '录播',
-          level: category,
-          icon: Icons.video_library_rounded,
-          color: AppTheme.primary,
-          isLive: false,
-        ),
-        _Course(
-          title: '$category真题与错题专题课',
-          teacher: '专题课 · 高频错点复盘',
-          time: '随到随学',
-          lessons: '18 讲',
-          typeLabel: '录播',
-          level: category,
-          icon: Icons.smart_display_rounded,
-          color: AppTheme.success,
-          isLive: false,
-        ),
-        _Course(
-          title: '$category冲刺串讲课',
-          teacher: '冲刺课 · 考前快速提分',
-          time: '随到随学',
-          lessons: '12 讲',
-          typeLabel: '录播',
-          level: category,
-          icon: Icons.rocket_launch_rounded,
-          color: AppTheme.accent,
-          isLive: false,
-        ),
-      ];
-}
-
 class _Course {
+  final int id;
   final String title;
   final String teacher;
   final String time;
@@ -348,6 +346,7 @@ class _Course {
   final bool isLive;
 
   const _Course({
+    required this.id,
     required this.title,
     required this.teacher,
     required this.time,
@@ -358,4 +357,21 @@ class _Course {
     required this.color,
     required this.isLive,
   });
+
+  factory _Course.fromJson(Map<String, dynamic> json) {
+    final type = json['course_type'] ?? 'recorded';
+    final isLive = type == 'live';
+    return _Course(
+      id: json['id'],
+      title: json['title'] ?? '',
+      teacher: '主讲：${json['teacher'] ?? ''}',
+      time: json['schedule'] ?? '',
+      lessons: isLive ? '直播课' : '${json['lesson_count'] ?? 0} 讲',
+      typeLabel: isLive ? '直播' : '录播',
+      level: json['exam_category'] ?? '',
+      icon: isLive ? Icons.live_tv_rounded : Icons.video_library_rounded,
+      color: isLive ? AppTheme.error : AppTheme.primary,
+      isLive: isLive,
+    );
+  }
 }

@@ -76,6 +76,14 @@ medexam/
 
 ## 本地启动
 
+### 一键启动（推荐）
+
+```bash
+/Users/ahuai/Documents/medexam/scripts/start_local.sh
+```
+
+脚本会先清理本机 `8000` 和 `5275` 端口，再构建 Flutter Web 并用本地静态服务启动页面，方便 Chrome、Codex 内置浏览器或其它浏览器稳定访问。
+
 ### 1. 启动后端
 
 ```bash
@@ -101,7 +109,8 @@ curl http://127.0.0.1:8000/health
 ```bash
 cd app
 flutter pub get
-flutter run -d chrome --web-port 5275
+flutter build web
+python3 ../scripts/serve_web.py --directory build/web --host 127.0.0.1 --port 5275
 ```
 
 如果使用静态构建预览：

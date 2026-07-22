@@ -25,6 +25,19 @@ async def create_study_plan(
     db: AsyncSession = Depends(get_db)
 ):
     """创建学习计划"""
+    if plan.end_date < plan.start_date:
+        raise HTTPException(status_code=400, detail="结束日期不能早于开始日期")
+
+    # 产品语义上同一用户只能有一个当前计划。
+    active_result = await db.execute(
+        select(StudyPlan).where(
+            StudyPlan.user_id == current_user.id,
+            StudyPlan.is_active == True,
+        )
+    )
+    for active_plan in active_result.scalars().all():
+        active_plan.is_active = False
+
     db_plan = StudyPlan(
         user_id=current_user.id,
         title=plan.title,
@@ -203,12 +216,13 @@ async def review_wrong_question(
     if is_correct:
         # 艾宾浩斯：答对后延长复习间隔
         intervals = [1, 3, 7, 14, 30]  # 天数
-        idx = min(wrong_q.review_count, len(intervals) - 1)
+        idx = min(wrong_q.review_count - 1, len(intervals) - 1)
         wrong_q.next_review_at = datetime.now() + timedelta(days=intervals[idx])
         if wrong_q.review_count >= 3:
             wrong_q.is_mastered = True
     else:
         # 答错则重置间隔
+        wrong_q.is_mastered = False
         wrong_q.next_review_at = datetime.now() + timedelta(days=1)
 
     await db.commit()

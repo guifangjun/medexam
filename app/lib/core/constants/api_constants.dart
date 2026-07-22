@@ -34,6 +34,9 @@ class ApiConstants {
 }
 
 class AppConstants {
+  // 用户备考目标/考试类别
+  static const List<String> examCategories = ['执业资格', '初级职称', '中级职称', '高级职称'];
+
   // 考试类型
   static const List<String> examTypes = ['执业医师', '助理医师'];
 

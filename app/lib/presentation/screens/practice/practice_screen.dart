@@ -57,8 +57,10 @@ class _PracticeScreenState extends State<PracticeScreen> {
           children: [
             Icon(Icons.folder_open_rounded, size: 64, color: AppTheme.textHint),
             const SizedBox(height: 16),
-            const Text('暂无章节数据',
-                style: TextStyle(color: AppTheme.textSecondary)),
+            Text(
+              provider.error ?? '暂无题目',
+              style: const TextStyle(color: AppTheme.textSecondary),
+            ),
           ],
         ),
       );
@@ -82,7 +84,16 @@ class _PracticeScreenState extends State<PracticeScreen> {
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: GlassCard(
-            onTap: () => provider.loadPracticeQuestions(chapterId: ch.id),
+            onTap: () async {
+              await provider.loadPracticeQuestions(chapterId: ch.id);
+              if (!context.mounted) return;
+              final updated = context.read<QuestionProvider>();
+              if (!updated.hasQuestions && updated.error != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('${ch.name}：${updated.error}')),
+                );
+              }
+            },
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [

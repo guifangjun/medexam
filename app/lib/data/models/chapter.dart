@@ -1,6 +1,7 @@
 class Chapter {
   final int id;
   final String name;
+  final String examCategory;
   final int? parentId;
   final int order;
   final List<String> subjects;
@@ -8,6 +9,7 @@ class Chapter {
   Chapter({
     required this.id,
     required this.name,
+    this.examCategory = '执业资格',
     this.parentId,
     required this.order,
     required this.subjects,
@@ -17,6 +19,7 @@ class Chapter {
     return Chapter(
       id: json['id'],
       name: json['name'],
+      examCategory: json['exam_category'] ?? '执业资格',
       parentId: json['parent_id'],
       order: json['order'] ?? 0,
       subjects: List<String>.from(json['subjects'] ?? []),

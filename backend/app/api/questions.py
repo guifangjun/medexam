@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
-import uuid
+from datetime import datetime
 
 from app.core.database import get_db
 from app.models.user import User
@@ -18,8 +18,17 @@ router = APIRouter(prefix="/api/questions", tags=["题库"])
 
 
 @router.get("/chapters", response_model=List[ChapterResponse])
-async def get_chapters(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Chapter).order_by(Chapter.order))
+async def get_chapters(
+    exam_category: Optional[str] = None,
+    only_with_questions: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(Chapter).order_by(Chapter.order)
+    if exam_category:
+        query = query.where(Chapter.exam_category == exam_category)
+    if only_with_questions:
+        query = query.join(Question).group_by(Chapter.id)
+    result = await db.execute(query)
     chapters = result.scalars().all()
     return chapters
 
@@ -27,6 +36,7 @@ async def get_chapters(db: AsyncSession = Depends(get_db)):
 @router.get("/practice", response_model=List[QuestionResponse])
 async def get_practice_questions(
     chapter_id: Optional[int] = None,
+    exam_category: Optional[str] = None,
     difficulty: Optional[int] = None,
     limit: int = 20,
     db: AsyncSession = Depends(get_db)
@@ -34,6 +44,8 @@ async def get_practice_questions(
     query = select(Question)
     if chapter_id:
         query = query.where(Question.chapter_id == chapter_id)
+    elif exam_category:
+        query = query.join(Chapter).where(Chapter.exam_category == exam_category)
     if difficulty:
         query = query.where(Question.difficulty == difficulty)
     query = query.limit(limit)
@@ -44,15 +56,13 @@ async def get_practice_questions(
 @router.get("/exam", response_model=List[QuestionResponse])
 async def get_exam_questions(
     question_count: int = 50,
+    exam_category: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    # 获取真题，随机选取
-    result = await db.execute(
-        select(Question)
-        .where(Question.is_real_exam == True)
-        .order_by(func.random())
-        .limit(question_count)
-    )
+    query = select(Question).where(Question.is_real_exam == True)
+    if exam_category:
+        query = query.join(Chapter).where(Chapter.exam_category == exam_category)
+    result = await db.execute(query.order_by(func.random()).limit(question_count))
     return result.scalars().all()
 
 
@@ -80,13 +90,26 @@ async def submit_question(
     )
     db.add(record)
 
-    # 如果答错，加入错题本
+    # 如果答错，加入错题本。同一道题只保留一条，避免重复答错污染统计。
     if not is_correct:
-        wrong_q = WrongQuestion(
-            user_id=current_user.id,
-            question_id=submit.question_id
+        wrong_result = await db.execute(
+            select(WrongQuestion).where(
+                WrongQuestion.user_id == current_user.id,
+                WrongQuestion.question_id == submit.question_id,
+            )
         )
-        db.add(wrong_q)
+        wrong_q = wrong_result.scalar_one_or_none()
+        if wrong_q:
+            wrong_q.is_mastered = False
+            wrong_q.next_review_at = datetime.now()
+        else:
+            db.add(
+                WrongQuestion(
+                    user_id=current_user.id,
+                    question_id=submit.question_id,
+                    next_review_at=datetime.now(),
+                )
+            )
 
     # 更新每日任务
     today = datetime.now().strftime("%Y-%m-%d")
@@ -116,6 +139,7 @@ async def submit_question(
             stats.correct_count += 1
         else:
             stats.wrong_count += 1
+        stats.time_spent += submit.time_spent
         stats.accuracy_rate = stats.correct_count / stats.total_questions
     else:
         stats = StudyStats(
@@ -124,7 +148,8 @@ async def submit_question(
             total_questions=1,
             correct_count=1 if is_correct else 0,
             wrong_count=0 if is_correct else 1,
-            accuracy_rate=1.0 if is_correct else 0.0
+            accuracy_rate=1.0 if is_correct else 0.0,
+            time_spent=submit.time_spent,
         )
         db.add(stats)
 
@@ -136,6 +161,3 @@ async def submit_question(
         explanation=question.explanation,
         wrong_reason=None if is_correct else "概念不清"
     )
-
-
-from datetime import datetime

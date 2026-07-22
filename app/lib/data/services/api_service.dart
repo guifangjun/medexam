@@ -31,8 +31,13 @@ class ApiService {
 
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
-        if (options.path.startsWith(ApiConstants.admin) &&
-            _adminToken != null) {
+        if (options.path.startsWith(ApiConstants.admin)) {
+          if (options.extra['skipAdminAuth'] == true) {
+            return handler.next(options);
+          }
+          if (_adminToken == null) {
+            return handler.next(options);
+          }
           options.headers['Authorization'] = 'Bearer $_adminToken';
         } else if (_token != null) {
           options.headers['Authorization'] = 'Bearer $_token';
@@ -135,25 +140,40 @@ class ApiService {
 
   // ============ Questions ============
 
-  Future<Response> getChapters() async {
-    return _dio.get(ApiConstants.chapters);
+  Future<Response> getChapters({
+    String? examCategory,
+    bool onlyWithQuestions = false,
+  }) async {
+    return _dio.get(ApiConstants.chapters, queryParameters: {
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+      if (onlyWithQuestions) 'only_with_questions': true,
+    });
   }
 
   Future<Response> getPracticeQuestions({
     int? chapterId,
+    String? examCategory,
     int? difficulty,
     int limit = 20,
   }) async {
     return _dio.get(ApiConstants.practice, queryParameters: {
       if (chapterId != null) 'chapter_id': chapterId,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
       if (difficulty != null) 'difficulty': difficulty,
       'limit': limit,
     });
   }
 
-  Future<Response> getExamQuestions({int count = 50}) async {
+  Future<Response> getExamQuestions({
+    int count = 50,
+    String? examCategory,
+  }) async {
     return _dio.get(ApiConstants.exam, queryParameters: {
       'question_count': count,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
     });
   }
 
@@ -163,9 +183,16 @@ class ApiService {
 
   // ============ Admin ============
 
-  Future<Response> getAdminQuestions({String? keyword}) async {
+  Future<Response> getAdminQuestions({
+    String? keyword,
+    String? examCategory,
+    int? chapterId,
+  }) async {
     return _dio.get(ApiConstants.adminQuestions, queryParameters: {
       if (keyword != null && keyword.isNotEmpty) 'keyword': keyword,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+      if (chapterId != null) 'chapter_id': chapterId,
     });
   }
 
@@ -187,6 +214,20 @@ class ApiService {
       if (courseType != null && courseType.isNotEmpty)
         'course_type': courseType,
     });
+  }
+
+  Future<Response> getPublishedCourses({
+    String? courseType,
+    String? examCategory,
+  }) async {
+    return _dio.get(ApiConstants.adminCourses,
+        queryParameters: {
+          if (courseType != null && courseType.isNotEmpty)
+            'course_type': courseType,
+          if (examCategory != null && examCategory.isNotEmpty)
+            'exam_category': examCategory,
+        },
+        options: Options(extra: {'skipAdminAuth': true}));
   }
 
   Future<Response> createAdminCourse(Map<String, dynamic> data) async {
@@ -257,7 +298,7 @@ class ApiService {
   }
 
   Future<Response> reviewWrongQuestion(int wrongId, bool isCorrect) async {
-    return _dio.post('${ApiConstants.wrong}/$wrongId/review', data: {
+    return _dio.post('${ApiConstants.wrong}/$wrongId/review', queryParameters: {
       'is_correct': isCorrect,
     });
   }

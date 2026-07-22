@@ -31,7 +31,8 @@ class _ExamScreenState extends State<ExamScreen> {
   }
 
   Widget _buildSetupView() {
-    final examCategory = context.watch<QuestionProvider>().examCategory;
+    final provider = context.watch<QuestionProvider>();
+    final examCategory = provider.examCategory;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -156,6 +157,15 @@ class _ExamScreenState extends State<ExamScreen> {
               label: const Text('开始模考'),
             ),
           ),
+          if (provider.error != null) ...[
+            const SizedBox(height: 14),
+            Center(
+              child: Text(
+                provider.error!,
+                style: const TextStyle(color: AppTheme.textSecondary),
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           const Text('考试说明',
               style: TextStyle(

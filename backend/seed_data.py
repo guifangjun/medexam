@@ -9,26 +9,50 @@ from app.models.study import StudyPlan, DailyTask
 async def seed_chapters():
     """添加考试大纲章节"""
     chapters_data = [
-        # 基础医学
-        {"name": "解剖学", "subjects": ["基础医学"]},
-        {"name": "生理学", "subjects": ["基础医学"]},
-        {"name": "病理学", "subjects": ["基础医学"]},
-        {"name": "药理学", "subjects": ["基础医学"]},
-        {"name": "生物化学", "subjects": ["基础医学"]},
-        # 临床医学
-        {"name": "内科学", "subjects": ["临床医学", "内科学"]},
-        {"name": "外科学", "subjects": ["临床医学", "外科学"]},
-        {"name": "妇产科学", "subjects": ["临床医学", "妇产科学"]},
-        {"name": "儿科学", "subjects": ["临床医学", "儿科学"]},
-        {"name": "诊断学", "subjects": ["临床医学"]},
-        {"name": "传染病学", "subjects": ["临床医学"]},
-        {"name": "神经病学", "subjects": ["临床医学"]},
+        {
+            "name": "医学人文综合",
+            "subjects": ["医学心理学", "医学伦理学", "卫生法规", "医学人文素养"],
+        },
+        {
+            "name": "基础医学综合",
+            "subjects": ["解剖学", "生理学", "生物化学", "病理学", "药理学", "医学微生物学", "医学免疫学"],
+        },
+        {
+            "name": "预防医学综合",
+            "subjects": ["预防医学", "流行病学", "卫生统计学", "公共卫生"],
+        },
+        {
+            "name": "临床医学综合",
+            "subjects": [
+                "呼吸系统",
+                "心血管系统",
+                "消化系统",
+                "泌尿系统",
+                "女性生殖系统",
+                "血液系统",
+                "内分泌系统",
+                "神经精神系统",
+                "运动系统",
+                "儿科疾病",
+                "传染病",
+                "急诊与危重症",
+            ],
+        },
+        {
+            "name": "中医学基础",
+            "subjects": ["中医基础理论", "中医诊断基础", "常见中医治法"],
+        },
+        {
+            "name": "实践综合",
+            "subjects": ["临床思维", "体格检查", "基本操作", "辅助检查判读"],
+        },
     ]
 
     async with AsyncSessionLocal() as db:
         for i, ch in enumerate(chapters_data):
             chapter = Chapter(
                 name=ch["name"],
+                exam_category="执业资格",
                 subjects=ch["subjects"],
                 order=i + 1
             )

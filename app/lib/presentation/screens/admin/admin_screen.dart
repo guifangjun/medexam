@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/constants/api_constants.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../data/models/chapter.dart';
 import '../../../data/services/api_service.dart';
 import '../../widgets/app_glass.dart';
 
@@ -18,6 +20,9 @@ class _AdminScreenState extends State<AdminScreen> {
   var _isCheckingAuth = true;
   var _tab = 0;
   var _isLoading = false;
+  var _selectedExamCategory = AppConstants.examCategories.first;
+  int? _selectedChapterId;
+  List<Chapter> _chapters = [];
   List<Map<String, dynamic>> _questions = [];
   List<Map<String, dynamic>> _courses = [];
 
@@ -71,9 +76,16 @@ class _AdminScreenState extends State<AdminScreen> {
   Future<void> _loadAll() async {
     setState(() => _isLoading = true);
     try {
-      final questionRes =
-          await _api.getAdminQuestions(keyword: _keywordCtl.text.trim());
+      final questionRes = await _api.getAdminQuestions(
+        keyword: _keywordCtl.text.trim(),
+        examCategory: _selectedExamCategory,
+        chapterId: _selectedChapterId,
+      );
+      final chapterRes = await _api.getChapters();
       final courseRes = await _api.getAdminCourses();
+      _chapters = (chapterRes.data as List)
+          .map((json) => Chapter.fromJson(json))
+          .toList();
       _questions = List<Map<String, dynamic>>.from(questionRes.data);
       _courses = List<Map<String, dynamic>>.from(courseRes.data);
     } finally {
@@ -128,7 +140,22 @@ class _AdminScreenState extends State<AdminScreen> {
                                 if (_tab == 0)
                                   _QuestionManager(
                                     questions: _questions,
+                                    chapters: _chapters,
+                                    selectedExamCategory: _selectedExamCategory,
+                                    selectedChapterId: _selectedChapterId,
                                     keywordCtl: _keywordCtl,
+                                    onExamCategoryChanged: (category) {
+                                      setState(() {
+                                        _selectedExamCategory = category;
+                                        _selectedChapterId = null;
+                                      });
+                                      _loadAll();
+                                    },
+                                    onChapterChanged: (chapterId) {
+                                      setState(
+                                          () => _selectedChapterId = chapterId);
+                                      _loadAll();
+                                    },
                                     onSearch: _loadAll,
                                     onSave: _saveQuestion,
                                     onDelete: _deleteQuestion,
@@ -191,8 +218,8 @@ class _AdminLoginScreen extends StatefulWidget {
 }
 
 class _AdminLoginScreenState extends State<_AdminLoginScreen> {
-  final _usernameCtl = TextEditingController(text: 'admin');
-  final _passwordCtl = TextEditingController(text: 'admin123');
+  final _usernameCtl = TextEditingController();
+  final _passwordCtl = TextEditingController();
   var _isLoading = false;
   String? _error;
 
@@ -295,9 +322,21 @@ class _AdminLoginScreenState extends State<_AdminLoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  '演示账号：admin / admin123',
-                  style: TextStyle(color: AppTheme.textHint, fontSize: 12),
+                Center(
+                  child: TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _usernameCtl.text = 'admin';
+                        _passwordCtl.text = 'admin123';
+                        _error = null;
+                      });
+                    },
+                    icon: const Icon(Icons.account_circle_outlined, size: 18),
+                    label: const Text('使用演示账号 admin / admin123'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.primary,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -568,14 +607,24 @@ class _MetricCard extends StatelessWidget {
 
 class _QuestionManager extends StatelessWidget {
   final List<Map<String, dynamic>> questions;
+  final List<Chapter> chapters;
+  final String selectedExamCategory;
+  final int? selectedChapterId;
   final TextEditingController keywordCtl;
+  final ValueChanged<String> onExamCategoryChanged;
+  final ValueChanged<int?> onChapterChanged;
   final Future<void> Function() onSearch;
   final Future<void> Function(Map<String, dynamic> data, {int? id}) onSave;
   final Future<void> Function(int id) onDelete;
 
   const _QuestionManager({
     required this.questions,
+    required this.chapters,
+    required this.selectedExamCategory,
+    required this.selectedChapterId,
     required this.keywordCtl,
+    required this.onExamCategoryChanged,
+    required this.onChapterChanged,
     required this.onSearch,
     required this.onSave,
     required this.onDelete,
@@ -583,20 +632,70 @@ class _QuestionManager extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final categoryChapters = _chaptersForCategory(selectedExamCategory);
+    final effectiveSelectedChapterId =
+        categoryChapters.any((chapter) => chapter.id == selectedChapterId)
+            ? selectedChapterId
+            : null;
+
     return GlassCard(
       padding: const EdgeInsets.all(18),
       child: Column(
         children: [
-          Row(
+          Wrap(
+            spacing: 10,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Text('题库管理',
                   style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
                       color: AppTheme.textPrimary)),
-              const Spacer(),
               SizedBox(
-                width: 260,
+                width: 170,
+                child: DropdownButtonFormField<String>(
+                  value: selectedExamCategory,
+                  decoration: const InputDecoration(
+                    labelText: '考试科目',
+                    prefixIcon: Icon(Icons.category_outlined),
+                  ),
+                  items: AppConstants.examCategories
+                      .map((category) => DropdownMenuItem<String>(
+                            value: category,
+                            child: Text(category),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) onExamCategoryChanged(value);
+                  },
+                ),
+              ),
+              SizedBox(
+                width: 170,
+                child: DropdownButtonFormField<int?>(
+                  value: effectiveSelectedChapterId,
+                  decoration: const InputDecoration(
+                    labelText: '章节/学科',
+                    prefixIcon: Icon(Icons.menu_book_outlined),
+                  ),
+                  items: [
+                    const DropdownMenuItem<int?>(
+                      value: null,
+                      child: Text('全部章节'),
+                    ),
+                    ...categoryChapters.map(
+                      (chapter) => DropdownMenuItem<int?>(
+                        value: chapter.id,
+                        child: Text(chapter.name),
+                      ),
+                    ),
+                  ],
+                  onChanged: onChapterChanged,
+                ),
+              ),
+              SizedBox(
+                width: 220,
                 child: TextField(
                   controller: keywordCtl,
                   decoration: const InputDecoration(
@@ -606,13 +705,11 @@ class _QuestionManager extends StatelessWidget {
                   onSubmitted: (_) => onSearch(),
                 ),
               ),
-              const SizedBox(width: 10),
               OutlinedButton.icon(
                 onPressed: onSearch,
                 icon: const Icon(Icons.search_rounded),
                 label: const Text('查询'),
               ),
-              const SizedBox(width: 10),
               ElevatedButton.icon(
                 onPressed: () => _showQuestionDialog(context),
                 icon: const Icon(Icons.add_rounded),
@@ -622,19 +719,20 @@ class _QuestionManager extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _DataHeader(
-            columns: const ['ID', '题干', '类型', '难度', '答案', '操作'],
-            flexes: const [1, 5, 1, 1, 1, 2],
+            columns: const ['ID', '考试科目', '题干', '类型', '难度', '答案', '操作'],
+            flexes: const [1, 2, 5, 1, 1, 1, 2],
           ),
           ...questions.map(
             (question) => _DataRowCard(
               cells: [
                 '${question['id']}',
+                _chapterName(question['chapter_id']),
                 question['content'] ?? '',
                 _questionTypeLabel(question['question_type']),
                 '${question['difficulty'] ?? 3}',
                 question['answer'] ?? '',
               ],
-              flexes: const [1, 5, 1, 1, 1],
+              flexes: const [1, 2, 5, 1, 1, 1],
               actions: [
                 IconButton(
                   tooltip: '编辑',
@@ -657,6 +755,17 @@ class _QuestionManager extends StatelessWidget {
 
   void _showQuestionDialog(BuildContext context,
       [Map<String, dynamic>? question]) {
+    final initialExamCategory = question == null
+        ? selectedExamCategory
+        : _categoryForChapterId(question?['chapter_id']) ??
+            selectedExamCategory;
+    final categoryChapters = _chaptersForCategory(initialExamCategory);
+    if (categoryChapters.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$initialExamCategory 暂无章节，请先初始化章节数据')),
+      );
+      return;
+    }
     final contentCtl = TextEditingController(text: question?['content'] ?? '');
     final optionACtl =
         TextEditingController(text: question?['options']?['A'] ?? '');
@@ -670,6 +779,16 @@ class _QuestionManager extends StatelessWidget {
     final explanationCtl =
         TextEditingController(text: question?['explanation'] ?? '');
     var questionType = question?['question_type'] ?? 'single';
+    var dialogExamCategory = initialExamCategory;
+    final questionChapterId = question?['chapter_id'];
+    final effectiveSelectedChapterId =
+        categoryChapters.any((chapter) => chapter.id == selectedChapterId)
+            ? selectedChapterId
+            : null;
+    var chapterId =
+        categoryChapters.any((chapter) => chapter.id == questionChapterId)
+            ? questionChapterId
+            : effectiveSelectedChapterId ?? categoryChapters.first.id;
     var difficulty = question?['difficulty'] ?? 3;
     var isRealExam = question?['is_real_exam'] ?? false;
 
@@ -683,6 +802,57 @@ class _QuestionManager extends StatelessWidget {
             child: SingleChildScrollView(
               child: Column(
                 children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: dialogExamCategory,
+                          decoration: const InputDecoration(
+                            labelText: '考试科目',
+                            prefixIcon: Icon(Icons.category_outlined),
+                          ),
+                          items: AppConstants.examCategories
+                              .map((category) => DropdownMenuItem<String>(
+                                    value: category,
+                                    child: Text(category),
+                                  ))
+                              .toList(),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            final nextChapters = _chaptersForCategory(value);
+                            if (nextChapters.isEmpty) return;
+                            setDialogState(() {
+                              dialogExamCategory = value;
+                              chapterId = nextChapters.first.id;
+                            });
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          value: chapterId,
+                          decoration: const InputDecoration(
+                            labelText: '章节/学科',
+                            prefixIcon: Icon(Icons.menu_book_outlined),
+                          ),
+                          items: _chaptersForCategory(dialogExamCategory)
+                              .map((chapter) => DropdownMenuItem<int>(
+                                    value: chapter.id,
+                                    child: Text(
+                                      chapter.subjects.isEmpty
+                                          ? chapter.name
+                                          : '${chapter.name} · ${chapter.subjects.join("、")}',
+                                    ),
+                                  ))
+                              .toList(),
+                          onChanged: (value) =>
+                              setDialogState(() => chapterId = value!),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: contentCtl,
                     maxLines: 3,
@@ -766,7 +936,7 @@ class _QuestionManager extends StatelessWidget {
             ElevatedButton(
               onPressed: () async {
                 final data = {
-                  'chapter_id': question?['chapter_id'] ?? 1,
+                  'chapter_id': chapterId,
                   'question_type': questionType,
                   'content': contentCtl.text.trim(),
                   'options': {
@@ -808,6 +978,27 @@ class _QuestionManager extends StatelessWidget {
       default:
         return '单选';
     }
+  }
+
+  String _chapterName(dynamic chapterId) {
+    for (final chapter in chapters) {
+      if (chapter.id == chapterId) return chapter.name;
+    }
+    return '未分类';
+  }
+
+  List<Chapter> _chaptersForCategory(String category) {
+    return chapters
+        .where((chapter) => chapter.examCategory == category)
+        .toList();
+  }
+
+  String? _categoryForChapterId(dynamic chapterId) {
+    if (chapterId is! int) return null;
+    for (final chapter in chapters) {
+      if (chapter.id == chapterId) return chapter.examCategory;
+    }
+    return null;
   }
 }
 

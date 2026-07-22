@@ -9,6 +9,7 @@ class Chapter(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)  # 章节名称
+    exam_category = Column(String(50), nullable=False, default="执业资格")
     parent_id = Column(Integer, ForeignKey("chapters.id"), nullable=True)  # 父章节
     order = Column(Integer, default=0)  # 排序
     subjects = Column(JSON, default=list)  # 包含的科目，如 ["内科学", "外科学"]

@@ -1,10 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict
 from datetime import datetime
 
 
 class ChapterBase(BaseModel):
     name: str
+    exam_category: str = "执业资格"
     parent_id: Optional[int] = None
     order: int = 0
     subjects: List[str] = []
@@ -57,8 +58,13 @@ class QuestionResponse(QuestionBase):
 
 class QuestionSubmit(BaseModel):
     question_id: int
-    selected_answer: str
-    time_spent: int = 0
+    selected_answer: str = Field(min_length=1, max_length=10)
+    time_spent: int = Field(default=0, ge=0, le=86400)
+
+    @field_validator("selected_answer")
+    @classmethod
+    def normalize_answer(cls, value: str) -> str:
+        return value.strip().upper()
 
 
 class QuestionSubmitResponse(BaseModel):

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/constants/api_constants.dart';
 import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/question_provider.dart';
 import '../../../data/providers/study_provider.dart';
@@ -529,14 +530,12 @@ class _ExamCategorySelector extends StatelessWidget {
   final String selected;
   const _ExamCategorySelector({required this.selected});
 
-  static const categories = ['执业资格', '初级职称', '中级职称', '高级职称'];
-
   @override
   Widget build(BuildContext context) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: categories.map((category) {
+      children: AppConstants.examCategories.map((category) {
         final isSelected = category == selected;
         return ChoiceChip(
           label: Text(category),
@@ -557,7 +556,6 @@ class _ExamCategorySelector extends StatelessWidget {
           onSelected: (_) {
             final provider = context.read<QuestionProvider>();
             provider.setExamCategory(category);
-            provider.loadChapters();
           },
         );
       }).toList(),

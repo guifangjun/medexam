@@ -1,11 +1,12 @@
 """启动时初始化数据库表，并在空库时写入种子数据。"""
 from passlib.context import CryptContext
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.core.database import AsyncSessionLocal, Base, engine
 from app.models import admin_user, conversation, course, question, study, user  # noqa: F401
 from app.models.admin_user import AdminUser
-from app.models.question import Chapter
+from app.models.course import Course
+from app.models.question import Chapter, Question
 from app.models.user import User
 
 
@@ -15,6 +16,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 async def init_database() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _ensure_sqlite_columns(conn)
 
     async with AsyncSessionLocal() as db:
         chapter_count = await db.scalar(select(func.count()).select_from(Chapter))
@@ -24,6 +26,8 @@ async def init_database() -> None:
 
         await seed_chapters()
         await seed_questions()
+
+    await _ensure_exam_category_content()
 
     async with AsyncSessionLocal() as db:
         demo_user = await db.scalar(select(User).where(User.username == "demo"))
@@ -40,6 +44,132 @@ async def init_database() -> None:
             )
             await db.commit()
 
+
+async def _ensure_sqlite_columns(conn) -> None:
+    if engine.url.get_backend_name() != "sqlite":
+        return
+
+    result = await conn.execute(text("PRAGMA table_info(chapters)"))
+    columns = {row[1] for row in result.fetchall()}
+    if "exam_category" not in columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE chapters "
+                "ADD COLUMN exam_category VARCHAR(50) NOT NULL DEFAULT '执业资格'"
+            )
+        )
+
+
+async def _ensure_exam_category_content() -> None:
+    licensed_chapters = [
+        (
+            "医学人文综合",
+            ["医学心理学", "医学伦理学", "卫生法规", "医学人文素养"],
+        ),
+        (
+            "基础医学综合",
+            ["解剖学", "生理学", "生物化学", "病理学", "药理学", "医学微生物学", "医学免疫学"],
+        ),
+        (
+            "预防医学综合",
+            ["预防医学", "流行病学", "卫生统计学", "公共卫生"],
+        ),
+        (
+            "临床医学综合",
+            [
+                "呼吸系统",
+                "心血管系统",
+                "消化系统",
+                "泌尿系统",
+                "女性生殖系统",
+                "血液系统",
+                "内分泌系统",
+                "神经精神系统",
+                "运动系统",
+                "儿科疾病",
+                "传染病",
+                "急诊与危重症",
+            ],
+        ),
+        (
+            "中医学基础",
+            ["中医基础理论", "中医诊断基础", "常见中医治法"],
+        ),
+        (
+            "实践综合",
+            ["临床思维", "体格检查", "基本操作", "辅助检查判读"],
+        ),
+    ]
+    chapter_seed = {
+        "执业资格": licensed_chapters,
+        "初级职称": [
+            ("初级基础知识", ["生理学", "病理学", "药理学"]),
+            ("专业理论与技能", ["诊断学", "内科学", "外科学"]),
+            ("常见病诊疗", ["心血管疾病", "呼吸系统", "消化系统"]),
+        ],
+        "中级职称": [
+            ("高级临床理论", ["病理生理学", "分子生物学", "免疫学"]),
+            ("专业进展", ["循证医学", "临床指南", "新技术应用"]),
+            ("疑难病例分析", ["复杂病例", "多学科会诊"]),
+        ],
+        "高级职称": [
+            ("学科前沿", ["最新研究成果", "前沿技术"]),
+            ("临床科研方法", ["临床试验", "医学统计学", "论文写作"]),
+            ("医学教育", ["教学能力", "继续教育"]),
+        ],
+    }
+
+    async with AsyncSessionLocal() as db:
+        licensed_question_count = await db.scalar(
+            select(func.count()).select_from(Question).join(Chapter).where(
+                Chapter.exam_category == "执业资格"
+            )
+        )
+        if not licensed_question_count:
+            licensed_existing = (
+                (
+                    await db.execute(
+                        select(Chapter)
+                        .where(Chapter.exam_category == "执业资格")
+                        .order_by(Chapter.order)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            desired_names = [name for name, _ in licensed_chapters]
+            existing_names = [chapter.name for chapter in licensed_existing]
+            if existing_names != desired_names:
+                for chapter in licensed_existing:
+                    await db.delete(chapter)
+                for index, (name, subjects) in enumerate(licensed_chapters, start=1):
+                    db.add(
+                        Chapter(
+                            name=name,
+                            exam_category="执业资格",
+                            subjects=subjects,
+                            order=index,
+                        )
+                    )
+
+        for category, chapters in chapter_seed.items():
+            existing_count = await db.scalar(
+                select(func.count()).select_from(Chapter).where(
+                    Chapter.exam_category == category
+                )
+            )
+            if not existing_count:
+                for index, (name, subjects) in enumerate(chapters, start=1):
+                    db.add(
+                        Chapter(
+                            name=name,
+                            exam_category=category,
+                            subjects=subjects,
+                            order=index,
+                        )
+                    )
+        await db.commit()
+
     async with AsyncSessionLocal() as db:
         admin = await db.scalar(select(AdminUser).where(AdminUser.username == "admin"))
         if admin is None:
@@ -50,5 +180,96 @@ async def init_database() -> None:
                     full_name="系统管理员",
                     role="super_admin",
                 )
+            )
+            await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        course_count = await db.scalar(select(func.count()).select_from(Course))
+        if not course_count:
+            db.add_all(
+                [
+                    Course(
+                        title="执业资格考前高频考点直播",
+                        course_type="live",
+                        exam_category="执业资格",
+                        teacher="三甲医院教研组",
+                        schedule="今晚 20:00",
+                        lesson_count=1,
+                        description="围绕基础医学、临床医学和医学人文梳理高频考点。",
+                    ),
+                    Course(
+                        title="初级职称专业基础直播班",
+                        course_type="live",
+                        exam_category="初级职称",
+                        teacher="初级职称命题研究组",
+                        schedule="明晚 19:30",
+                        lesson_count=1,
+                        description="聚焦专业基础、常见题型和岗位规范。",
+                    ),
+                    Course(
+                        title="中级职称病例分析实战课",
+                        course_type="live",
+                        exam_category="中级职称",
+                        teacher="临床病例教研中心",
+                        schedule="周六 20:00",
+                        lesson_count=1,
+                        description="拆解病例题审题、诊断和治疗决策路径。",
+                    ),
+                    Course(
+                        title="高级职称专科前沿公开课",
+                        course_type="live",
+                        exam_category="高级职称",
+                        teacher="高级职称评审专家组",
+                        schedule="周日 19:30",
+                        lesson_count=1,
+                        description="讲解指南更新、专科前沿和综合病例答题框架。",
+                    ),
+                    Course(
+                        title="执业资格核心基础精讲",
+                        course_type="recorded",
+                        exam_category="执业资格",
+                        teacher="系统课教研组",
+                        schedule="随到随学",
+                        lesson_count=32,
+                        description="按考试大纲拆解基础医学、临床医学和预防医学。",
+                    ),
+                    Course(
+                        title="初级职称常见病诊疗专题",
+                        course_type="recorded",
+                        exam_category="初级职称",
+                        teacher="专业基础教研组",
+                        schedule="随到随学",
+                        lesson_count=24,
+                        description="覆盖常见病诊疗、专业基础与技能规范。",
+                    ),
+                    Course(
+                        title="中级职称真题与错题专题课",
+                        course_type="recorded",
+                        exam_category="中级职称",
+                        teacher="中级职称冲刺组",
+                        schedule="随到随学",
+                        lesson_count=20,
+                        description="按真题题型复盘高频错点与病例综合题。",
+                    ),
+                    Course(
+                        title="高级职称科研与病例综合课",
+                        course_type="recorded",
+                        exam_category="高级职称",
+                        teacher="高级职称教研组",
+                        schedule="随到随学",
+                        lesson_count=18,
+                        description="覆盖临床科研方法、指南更新和综合答辩能力。",
+                    ),
+                    Course(
+                        title="未发布课程示例",
+                        course_type="recorded",
+                        exam_category="执业资格",
+                        teacher="后台测试",
+                        schedule="待定",
+                        lesson_count=4,
+                        description="用于验证学员端不会展示未发布课程。",
+                        is_published=False,
+                    ),
+                ]
             )
             await db.commit()

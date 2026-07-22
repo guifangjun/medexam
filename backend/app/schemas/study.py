@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
@@ -24,7 +24,7 @@ class StudyPlanBase(BaseModel):
     title: str
     plan_type: str = "daily"
     target_chapters: List[int] = []
-    daily_questions: int = 20
+    daily_questions: int = Field(default=20, ge=1, le=500)
     start_date: datetime
     end_date: datetime
 
