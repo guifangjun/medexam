@@ -10,7 +10,7 @@ from app.models.question import Question, QuestionRecord, Chapter
 from app.models.study import DailyTask, StudyStats, WrongQuestion
 from app.schemas.question import (
     QuestionResponse, QuestionSubmit, QuestionSubmitResponse,
-    ChapterResponse, ExamSession
+    ChapterResponse, ExamSubmit, ExamSubmitResponse, ExamQuestionResult
 )
 from app.api.deps import get_current_user
 
@@ -79,23 +79,121 @@ async def submit_question(
 
     is_correct = submit.selected_answer.upper() == question.answer.upper()
 
-    # 记录做题
-    record = QuestionRecord(
+    await _record_answer(
+        db=db,
         user_id=current_user.id,
         question_id=submit.question_id,
         selected_answer=submit.selected_answer,
         is_correct=is_correct,
-        is_wrong=not is_correct,
-        time_spent=submit.time_spent
+        time_spent=submit.time_spent,
     )
-    db.add(record)
+    await db.commit()
 
-    # 如果答错，加入错题本。同一道题只保留一条，避免重复答错污染统计。
+    return QuestionSubmitResponse(
+        is_correct=is_correct,
+        correct_answer=question.answer,
+        explanation=question.explanation,
+        wrong_reason=None if is_correct else "概念不清"
+    )
+
+
+@router.post("/exam/submit", response_model=ExamSubmitResponse)
+async def submit_exam(
+    submit: ExamSubmit,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if not submit.answers:
+        raise HTTPException(status_code=400, detail="请先完成至少一道模考题")
+
+    question_ids = [answer.question_id for answer in submit.answers]
+    if len(question_ids) != len(set(question_ids)):
+        raise HTTPException(status_code=400, detail="模考答案包含重复题目")
+
+    result = await db.execute(select(Question).where(Question.id.in_(question_ids)))
+    questions = {question.id: question for question in result.scalars().all()}
+    if len(questions) != len(question_ids):
+        raise HTTPException(status_code=404, detail="部分题目不存在")
+
+    per_question_time = submit.time_spent // len(question_ids) if question_ids else 0
+    time_remainder = submit.time_spent % len(question_ids) if question_ids else 0
+    results = []
+    correct_count = 0
+    answered_count = 0
+
+    for index, answer in enumerate(submit.answers):
+        question = questions[answer.question_id]
+        selected = answer.selected_answer
+        is_correct = selected is not None and selected.upper() == question.answer.upper()
+        if selected is not None:
+            answered_count += 1
+        if is_correct:
+            correct_count += 1
+
+        await _record_answer(
+            db=db,
+            user_id=current_user.id,
+            question_id=question.id,
+            selected_answer=selected,
+            is_correct=is_correct,
+            time_spent=per_question_time + (1 if index < time_remainder else 0),
+        )
+        results.append(
+            ExamQuestionResult(
+                question_id=question.id,
+                selected_answer=selected,
+                correct_answer=question.answer,
+                is_correct=is_correct,
+                explanation=question.explanation,
+                content=question.content,
+                options=question.options or {},
+                知识点=question.知识点 or [],
+            )
+        )
+
+    await db.commit()
+
+    total = len(results)
+    wrong_count = total - correct_count
+    accuracy_rate = correct_count / total if total else 0
+    return ExamSubmitResponse(
+        total_questions=total,
+        answered_count=answered_count,
+        unanswered_count=total - answered_count,
+        correct_count=correct_count,
+        wrong_count=wrong_count,
+        score=round(accuracy_rate * 100, 1),
+        accuracy_rate=accuracy_rate,
+        time_spent=submit.time_spent,
+        wrong_questions=[item for item in results if not item.is_correct],
+        results=results,
+    )
+
+
+async def _record_answer(
+    db: AsyncSession,
+    user_id: int,
+    question_id: int,
+    selected_answer: Optional[str],
+    is_correct: bool,
+    time_spent: int,
+) -> None:
+    db.add(
+        QuestionRecord(
+            user_id=user_id,
+            question_id=question_id,
+            selected_answer=selected_answer,
+            is_correct=is_correct,
+            is_wrong=not is_correct,
+            time_spent=time_spent,
+        )
+    )
+
     if not is_correct:
         wrong_result = await db.execute(
             select(WrongQuestion).where(
-                WrongQuestion.user_id == current_user.id,
-                WrongQuestion.question_id == submit.question_id,
+                WrongQuestion.user_id == user_id,
+                WrongQuestion.question_id == question_id,
             )
         )
         wrong_q = wrong_result.scalar_one_or_none()
@@ -105,19 +203,15 @@ async def submit_question(
         else:
             db.add(
                 WrongQuestion(
-                    user_id=current_user.id,
-                    question_id=submit.question_id,
+                    user_id=user_id,
+                    question_id=question_id,
                     next_review_at=datetime.now(),
                 )
             )
 
-    # 更新每日任务
     today = datetime.now().strftime("%Y-%m-%d")
     task_result = await db.execute(
-        select(DailyTask).where(
-            DailyTask.user_id == current_user.id,
-            DailyTask.date == today
-        )
+        select(DailyTask).where(DailyTask.user_id == user_id, DailyTask.date == today)
     )
     task = task_result.scalar_one_or_none()
     if task:
@@ -125,12 +219,8 @@ async def submit_question(
         if task.completed_questions >= task.target_questions:
             task.is_completed = True
 
-    # 更新学习统计
     stats_result = await db.execute(
-        select(StudyStats).where(
-            StudyStats.user_id == current_user.id,
-            StudyStats.date == today
-        )
+        select(StudyStats).where(StudyStats.user_id == user_id, StudyStats.date == today)
     )
     stats = stats_result.scalar_one_or_none()
     if stats:
@@ -139,25 +229,17 @@ async def submit_question(
             stats.correct_count += 1
         else:
             stats.wrong_count += 1
-        stats.time_spent += submit.time_spent
+        stats.time_spent += time_spent
         stats.accuracy_rate = stats.correct_count / stats.total_questions
     else:
-        stats = StudyStats(
-            user_id=current_user.id,
-            date=today,
-            total_questions=1,
-            correct_count=1 if is_correct else 0,
-            wrong_count=0 if is_correct else 1,
-            accuracy_rate=1.0 if is_correct else 0.0,
-            time_spent=submit.time_spent,
+        db.add(
+            StudyStats(
+                user_id=user_id,
+                date=today,
+                total_questions=1,
+                correct_count=1 if is_correct else 0,
+                wrong_count=0 if is_correct else 1,
+                accuracy_rate=1.0 if is_correct else 0.0,
+                time_spent=time_spent,
+            )
         )
-        db.add(stats)
-
-    await db.commit()
-
-    return QuestionSubmitResponse(
-        is_correct=is_correct,
-        correct_answer=question.answer,
-        explanation=question.explanation,
-        wrong_reason=None if is_correct else "概念不清"
-    )

@@ -13,6 +13,7 @@ class ApiConstants {
   static const String practice = '$questions/practice';
   static const String exam = '$questions/exam';
   static const String submit = '$questions/submit';
+  static const String examSubmit = '$questions/exam/submit';
 
   static const String ai = '/api/ai';
   static const String chat = '$ai/chat';

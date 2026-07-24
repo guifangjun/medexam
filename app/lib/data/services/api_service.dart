@@ -181,6 +181,10 @@ class ApiService {
     return _dio.post(ApiConstants.submit, data: data);
   }
 
+  Future<Response> submitExam(Map<String, dynamic> data) async {
+    return _dio.post(ApiConstants.examSubmit, data: data);
+  }
+
   // ============ Admin ============
 
   Future<Response> getAdminQuestions({

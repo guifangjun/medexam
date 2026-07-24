@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../data/models/question.dart';
 import '../../../data/providers/question_provider.dart';
 import '../../../core/theme/app_theme.dart';
 
@@ -234,14 +235,23 @@ class _ExamSessionScreen extends StatefulWidget {
 class _ExamSessionScreenState extends State<_ExamSessionScreen> {
   Timer? _timer;
   int _seconds = 0;
+  late final int _initialSeconds;
+  bool _isSubmitting = false;
+  bool _timedOut = false;
 
   @override
   void initState() {
     super.initState();
-    _seconds = widget.questionCount ~/ 2 * 60;
+    final provider = context.read<QuestionProvider>();
+    final actualCount = provider.currentQuestions.length;
+    _initialSeconds = (actualCount ~/ 2).clamp(1, 100000) * 60;
+    _seconds = _initialSeconds;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_seconds > 0) {
         setState(() => _seconds--);
+      } else {
+        _timer?.cancel();
+        _submitExam(timedOut: true);
       }
     });
   }
@@ -258,14 +268,54 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
+  int get _timeSpent => _initialSeconds - _seconds;
+  bool get _locked => _isSubmitting || _timedOut;
+
+  Future<void> _submitExam({bool timedOut = false}) async {
+    if (_isSubmitting) return;
+    setState(() {
+      _isSubmitting = true;
+      _timedOut = timedOut;
+    });
+    _timer?.cancel();
+    final result = await context.read<QuestionProvider>().submitExam(
+          timeSpent: _timeSpent,
+        );
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+    if (result == null && !timedOut) {
+      _startTimer();
+    }
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_seconds > 0) {
+        setState(() => _seconds--);
+      } else {
+        _timer?.cancel();
+        _submitExam(timedOut: true);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<QuestionProvider>(
       builder: (context, provider, _) {
         final q = provider.currentQuestion;
-        final result = provider.lastResult;
+        final examResult = provider.examResult;
         if (q == null) {
           return const Center(child: CircularProgressIndicator());
+        }
+
+        if (examResult != null) {
+          return _ExamResultView(
+            result: examResult,
+            timedOut: _timedOut,
+            onDone: () => provider.reset(),
+          );
         }
 
         return Scaffold(
@@ -293,7 +343,7 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                         child: const Text('继续答题')),
                     ElevatedButton(
                         onPressed: () {
-                          provider.reset();
+                          _submitExam();
                           Navigator.pop(ctx);
                         },
                         child: const Text('交卷')),
@@ -340,45 +390,36 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                                   : '病例题',
                           AppTheme.primary),
                       const SizedBox(height: 16),
-                      Text(q.content ?? '',
+                      Text(q.content,
                           style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
                               height: 1.6)),
                       const SizedBox(height: 20),
-                      ...(q.options ?? {}).entries.map((entry) {
-                        Color? bg, border;
-                        IconData? trailing;
-                        if (result != null) {
-                          final sel = entry.key == result.selectedAnswer;
-                          final correct = entry.key == result.correctAnswer;
-                          if (correct) {
-                            bg = AppTheme.success.withOpacity(0.08);
-                            border = AppTheme.success;
-                            trailing = Icons.check_circle_rounded;
-                          } else if (sel && !result.isCorrect) {
-                            bg = AppTheme.error.withOpacity(0.08);
-                            border = AppTheme.error;
-                            trailing = Icons.cancel_rounded;
-                          }
-                        }
+                      ...q.options.entries.map((entry) {
+                        final selected =
+                            provider.examAnswers[q.id] == entry.key;
+                        final border =
+                            selected ? AppTheme.primary : AppTheme.divider;
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: Material(
-                            color: bg ?? Colors.white,
+                            color: selected
+                                ? AppTheme.primary.withOpacity(0.08)
+                                : Colors.white,
                             borderRadius: BorderRadius.circular(14),
                             child: InkWell(
-                              onTap: result == null
-                                  ? () => provider.submitAnswer(entry.key)
-                                  : null,
+                              onTap: _locked
+                                  ? null
+                                  : () => provider.selectExamAnswer(entry.key),
                               borderRadius: BorderRadius.circular(14),
                               child: Container(
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
-                                    color: border ?? AppTheme.divider,
-                                    width: border != null ? 1.5 : 1,
+                                    color: border,
+                                    width: selected ? 1.5 : 1,
                                   ),
                                 ),
                                 child: Row(
@@ -388,12 +429,13 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                                       height: 28,
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
-                                        color: border != null
-                                            ? border
+                                        color: selected
+                                            ? AppTheme.primary
                                             : Colors.transparent,
                                         border: Border.all(
-                                          color:
-                                              border ?? AppTheme.textSecondary,
+                                          color: selected
+                                              ? AppTheme.primary
+                                              : AppTheme.textSecondary,
                                           width: 1.5,
                                         ),
                                       ),
@@ -402,7 +444,7 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                                             style: TextStyle(
                                                 fontWeight: FontWeight.w600,
                                                 fontSize: 13,
-                                                color: border != null
+                                                color: selected
                                                     ? Colors.white
                                                     : AppTheme.textSecondary)),
                                       ),
@@ -412,8 +454,9 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                                         child: Text(entry.value,
                                             style: const TextStyle(
                                                 height: 1.4, fontSize: 15))),
-                                    if (trailing != null)
-                                      Icon(trailing, color: border, size: 22),
+                                    if (selected)
+                                      const Icon(Icons.check_circle_rounded,
+                                          color: AppTheme.primary, size: 22),
                                   ],
                                 ),
                               ),
@@ -421,40 +464,10 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                           ),
                         );
                       }),
-                      if (result != null && result.explanation != null) ...[
-                        const SizedBox(height: 20),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primary.withOpacity(0.04),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                                color: AppTheme.primary.withOpacity(0.1)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Row(
-                                children: [
-                                  Icon(Icons.lightbulb_outline_rounded,
-                                      color: AppTheme.primary, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('解析',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          color: AppTheme.primary)),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Text(result.explanation!,
-                                  style: const TextStyle(
-                                      height: 1.6,
-                                      color: AppTheme.textPrimary,
-                                      fontSize: 14)),
-                            ],
-                          ),
-                        ),
+                      if (provider.error != null) ...[
+                        const SizedBox(height: 16),
+                        Text(provider.error!,
+                            style: const TextStyle(color: AppTheme.error)),
                       ],
                       const SizedBox(height: 80),
                     ],
@@ -479,20 +492,26 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                       if (provider.currentIndex > 0)
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () => provider.previousQuestion(),
+                            onPressed: _isSubmitting
+                                ? null
+                                : () => provider.previousQuestion(),
                             child: const Text('上一题'),
                           ),
                         ),
                       if (provider.currentIndex > 0) const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: result == null
+                          onPressed: _isSubmitting
                               ? null
                               : provider.isLastQuestion
-                                  ? () => provider.reset()
+                                  ? () => _submitExam()
                                   : () => provider.nextQuestion(),
                           child: Text(
-                            provider.isLastQuestion ? '完成考试' : '下一题',
+                            _isSubmitting
+                                ? '交卷中...'
+                                : provider.isLastQuestion
+                                    ? '交卷'
+                                    : '下一题',
                           ),
                         ),
                       ),
@@ -504,6 +523,194 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _ExamResultView extends StatelessWidget {
+  final ExamResult result;
+  final bool timedOut;
+  final VoidCallback onDone;
+
+  const _ExamResultView({
+    required this.result,
+    required this.timedOut,
+    required this.onDone,
+  });
+
+  String get _timeText {
+    final minutes = result.timeSpent ~/ 60;
+    final seconds = result.timeSpent % 60;
+    return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: const Text('模考成绩'),
+        actions: [
+          TextButton(onPressed: onDone, child: const Text('完成')),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: AppTheme.divider),
+              ),
+              child: Column(
+                children: [
+                  if (timedOut)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 10),
+                      child: Text('考试时间已到，系统已自动交卷',
+                          style: TextStyle(
+                              color: AppTheme.error,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  Text('${result.score.toStringAsFixed(1)}分',
+                      style: const TextStyle(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.primary)),
+                  const SizedBox(height: 8),
+                  Text(
+                    '正确 ${result.correctCount} / ${result.totalQuestions} 题',
+                    style: const TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _ResultMetric('用时', _timeText),
+                const SizedBox(width: 10),
+                _ResultMetric('已答', '${result.answeredCount}题'),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                _ResultMetric('未答', '${result.unansweredCount}题'),
+                const SizedBox(width: 10),
+                _ResultMetric('错题', '${result.wrongCount}题'),
+              ],
+            ),
+            const SizedBox(height: 24),
+            const Text('错题解析',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textPrimary)),
+            const SizedBox(height: 12),
+            if (result.wrongQuestions.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppTheme.success.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text('本次模考没有错题',
+                    style: TextStyle(color: AppTheme.success)),
+              )
+            else
+              ...result.wrongQuestions.map((item) => _WrongQuestionCard(item)),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: onDone,
+                child: const Text('返回模考首页'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ResultMetric extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ResultMetric(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: const TextStyle(
+                    color: AppTheme.textSecondary, fontSize: 12)),
+            const SizedBox(height: 6),
+            Text(value,
+                style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WrongQuestionCard extends StatelessWidget {
+  final ExamQuestionResult item;
+
+  const _WrongQuestionCard(this.item);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(item.content,
+              style: const TextStyle(fontWeight: FontWeight.w600, height: 1.5)),
+          const SizedBox(height: 10),
+          Text('你的答案：${item.selectedAnswer ?? '未答'}',
+              style: const TextStyle(color: AppTheme.error)),
+          const SizedBox(height: 4),
+          Text('正确答案：${item.correctAnswer}',
+              style: const TextStyle(color: AppTheme.success)),
+          if (item.explanation != null && item.explanation!.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(item.explanation!,
+                style: const TextStyle(
+                    color: AppTheme.textSecondary, height: 1.5)),
+          ],
+        ],
+      ),
     );
   }
 }

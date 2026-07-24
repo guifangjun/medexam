@@ -8,6 +8,7 @@ from app.models.admin_user import AdminUser
 from app.models.course import Course
 from app.models.question import Chapter, Question
 from app.models.user import User
+from app.core.licensed_exam_questions import build_licensed_exam_questions
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -170,6 +171,8 @@ async def _ensure_exam_category_content() -> None:
                     )
         await db.commit()
 
+    await _ensure_licensed_exam_questions()
+
     async with AsyncSessionLocal() as db:
         admin = await db.scalar(select(AdminUser).where(AdminUser.username == "admin"))
         if admin is None:
@@ -181,6 +184,52 @@ async def _ensure_exam_category_content() -> None:
                     role="super_admin",
                 )
             )
+            await db.commit()
+
+
+async def _ensure_licensed_exam_questions() -> None:
+    rows = build_licensed_exam_questions()
+    async with AsyncSessionLocal() as db:
+        chapters_result = await db.execute(
+            select(Chapter).where(Chapter.exam_category == "执业资格")
+        )
+        chapters_by_name = {
+            chapter.name: chapter for chapter in chapters_result.scalars().all()
+        }
+        missing_chapters = sorted(
+            {chapter_name for chapter_name, *_ in rows} - set(chapters_by_name)
+        )
+        if missing_chapters:
+            raise RuntimeError(f"缺少执业资格章节: {', '.join(missing_chapters)}")
+
+        content_result = await db.execute(
+            select(Question.content).join(Chapter).where(
+                Chapter.exam_category == "执业资格"
+            )
+        )
+        existing_contents = set(content_result.scalars().all())
+        inserted = False
+        for chapter_name, subject, content, options, answer, explanation, difficulty in rows:
+            if content in existing_contents:
+                continue
+            chapter = chapters_by_name[chapter_name]
+            db.add(
+                Question(
+                    chapter_id=chapter.id,
+                    question_type="single",
+                    content=content,
+                    options=options,
+                    answer=answer,
+                    explanation=explanation,
+                    difficulty=difficulty,
+                    is_real_exam=True,
+                    exam_year=2026,
+                    知识点=["执业资格", "执业医师", chapter_name, subject],
+                )
+            )
+            existing_contents.add(content)
+            inserted = True
+        if inserted:
             await db.commit()
 
     async with AsyncSessionLocal() as db:

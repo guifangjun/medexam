@@ -80,6 +80,43 @@ class ExamSession(BaseModel):
     time_limit: int = 3600  # 秒
 
 
+class ExamAnswer(BaseModel):
+    question_id: int
+    selected_answer: Optional[str] = None
+
+    @field_validator("selected_answer")
+    @classmethod
+    def normalize_optional_answer(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip().upper()
+        return value or None
+
+
 class ExamSubmit(BaseModel):
-    answers: List[QuestionSubmit]
-    session_id: str
+    answers: List[ExamAnswer]
+    time_spent: int = Field(default=0, ge=0, le=86400)
+
+
+class ExamQuestionResult(BaseModel):
+    question_id: int
+    selected_answer: Optional[str] = None
+    correct_answer: str
+    is_correct: bool
+    explanation: Optional[str] = None
+    content: str
+    options: Dict[str, str]
+    知识点: List[str] = []
+
+
+class ExamSubmitResponse(BaseModel):
+    total_questions: int
+    answered_count: int
+    unanswered_count: int
+    correct_count: int
+    wrong_count: int
+    score: float
+    accuracy_rate: float
+    time_spent: int
+    wrong_questions: List[ExamQuestionResult]
+    results: List[ExamQuestionResult]

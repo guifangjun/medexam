@@ -126,41 +126,48 @@ class _TodayTab extends StatelessWidget {
                                     color: Colors.white.withOpacity(0.8),
                                     fontSize: 14)),
                             const SizedBox(height: 20),
-                            SizedBox(
-                              width: 140,
-                              height: 140,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  CircularProgressIndicator(
-                                    value: task.progress,
-                                    strokeWidth: 10,
-                                    backgroundColor:
-                                        Colors.white.withOpacity(0.2),
-                                    valueColor: const AlwaysStoppedAnimation(
-                                        Colors.white),
-                                  ),
-                                  Column(
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 118,
+                                  height: 118,
+                                  child: Stack(
+                                    alignment: Alignment.center,
                                     children: [
+                                      SizedBox(
+                                        width: 92,
+                                        height: 92,
+                                        child: CircularProgressIndicator(
+                                          value: task.progress,
+                                          strokeWidth: 8,
+                                          backgroundColor:
+                                              Colors.white.withOpacity(0.2),
+                                          valueColor:
+                                              const AlwaysStoppedAnimation(
+                                                  Colors.white),
+                                        ),
+                                      ),
                                       Text(
                                         '${(task.progress * 100).toInt()}%',
                                         style: const TextStyle(
-                                          fontSize: 32,
+                                          fontSize: 28,
                                           fontWeight: FontWeight.w700,
                                           color: Colors.white,
                                         ),
                                       ),
-                                      Text(
-                                        '${task.completedQuestions}/${task.targetQuestions}',
-                                        style: TextStyle(
-                                          color: Colors.white.withOpacity(0.8),
-                                          fontSize: 14,
-                                        ),
-                                      ),
                                     ],
                                   ),
-                                ],
-                              ),
+                                ),
+                                Text(
+                                  '${task.completedQuestions}/${task.targetQuestions}',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.82),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 16),
                             Text(

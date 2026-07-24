@@ -13,6 +13,8 @@ class QuestionProvider extends ChangeNotifier {
   int _currentIndex = 0;
   Question? _currentQuestion;
   SubmitResult? _lastResult;
+  ExamResult? _examResult;
+  final Map<int, String> _examAnswers = {};
   bool _isLoading = false;
   String? _error;
 
@@ -29,6 +31,8 @@ class QuestionProvider extends ChangeNotifier {
   int get currentIndex => _currentIndex;
   Question? get currentQuestion => _currentQuestion;
   SubmitResult? get lastResult => _lastResult;
+  ExamResult? get examResult => _examResult;
+  Map<int, String> get examAnswers => Map.unmodifiable(_examAnswers);
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get hasQuestions => _currentQuestions.isNotEmpty;
@@ -307,6 +311,8 @@ class QuestionProvider extends ChangeNotifier {
       _currentIndex = 0;
       _currentQuestion = null;
       _lastResult = null;
+      _examResult = null;
+      _examAnswers.clear();
       notifyListeners();
       loadChapters();
     }
@@ -361,6 +367,8 @@ class QuestionProvider extends ChangeNotifier {
           (res.data as List).map((json) => Question.fromJson(json)).toList();
       _currentIndex = 0;
       _lastResult = null;
+      _examResult = null;
+      _examAnswers.clear();
       _currentQuestion =
           _currentQuestions.isNotEmpty ? _currentQuestions.first : null;
       _error = _currentQuestions.isEmpty ? '暂无题目' : null;
@@ -372,6 +380,8 @@ class QuestionProvider extends ChangeNotifier {
         _currentQuestions = [];
         _currentQuestion = null;
         _lastResult = null;
+        _examResult = null;
+        _examAnswers.clear();
         _error = '题目加载失败，请稍后重试';
       }
     } finally {
@@ -394,9 +404,17 @@ class QuestionProvider extends ChangeNotifier {
           (res.data as List).map((json) => Question.fromJson(json)).toList();
       _currentIndex = 0;
       _lastResult = null;
+      _examResult = null;
+      _examAnswers.clear();
       _currentQuestion =
           _currentQuestions.isNotEmpty ? _currentQuestions.first : null;
-      _error = _currentQuestions.isEmpty ? '暂无题目' : null;
+      if (_currentQuestions.isEmpty) {
+        _error = '当前考试目标暂无可用模考题，请先在后台添加真题';
+      } else if (_currentQuestions.length < count) {
+        _error = '当前仅有 ${_currentQuestions.length} 道可用模考题，已按实际题量开考';
+      } else {
+        _error = null;
+      }
     } catch (e) {
       if (_useMockData) {
         _loadMockExamQuestions(count);
@@ -405,6 +423,8 @@ class QuestionProvider extends ChangeNotifier {
         _currentQuestions = [];
         _currentQuestion = null;
         _lastResult = null;
+        _examResult = null;
+        _examAnswers.clear();
         _error = '模考题加载失败，请稍后重试';
       }
     } finally {
@@ -428,6 +448,8 @@ class QuestionProvider extends ChangeNotifier {
     }
     _currentIndex = 0;
     _lastResult = null;
+    _examResult = null;
+    _examAnswers.clear();
     _currentQuestion =
         _currentQuestions.isNotEmpty ? _currentQuestions.first : null;
   }
@@ -444,8 +466,46 @@ class QuestionProvider extends ChangeNotifier {
     }
     _currentIndex = 0;
     _lastResult = null;
+    _examResult = null;
+    _examAnswers.clear();
     _currentQuestion =
         _currentQuestions.isNotEmpty ? _currentQuestions.first : null;
+  }
+
+  void selectExamAnswer(String selectedAnswer) {
+    if (_currentQuestion == null || _examResult != null) return;
+    _examAnswers[_currentQuestion!.id] = selectedAnswer;
+    notifyListeners();
+  }
+
+  Future<ExamResult?> submitExam({required int timeSpent}) async {
+    if (_currentQuestions.isEmpty) return null;
+
+    try {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+
+      final res = await _api.submitExam({
+        'time_spent': timeSpent,
+        'answers': _currentQuestions
+            .map((question) => {
+                  'question_id': question.id,
+                  'selected_answer': _examAnswers[question.id],
+                })
+            .toList(),
+      });
+      _examResult = ExamResult.fromJson(res.data);
+      notifyListeners();
+      return _examResult;
+    } catch (e) {
+      _error = '交卷失败，请确认登录状态后重试';
+      notifyListeners();
+      return null;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<SubmitResult?> submitAnswer(String selectedAnswer) async {
@@ -526,6 +586,8 @@ class QuestionProvider extends ChangeNotifier {
     _currentIndex = 0;
     _currentQuestion = null;
     _lastResult = null;
+    _examResult = null;
+    _examAnswers.clear();
     notifyListeners();
   }
 
