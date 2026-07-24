@@ -29,7 +29,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         )
         login = await self.client.post(
-            "/api/auth/login", data={"username": "demo", "password": "demo123"}
+            "/api/auth/login", data={"username": "13800000000", "password": "demo123"}
         )
         self.assertEqual(login.status_code, 200, login.text)
         self.user_headers = {

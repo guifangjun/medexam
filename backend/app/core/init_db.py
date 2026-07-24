@@ -31,12 +31,24 @@ async def init_database() -> None:
     await _ensure_exam_category_content()
 
     async with AsyncSessionLocal() as db:
-        demo_user = await db.scalar(select(User).where(User.username == "demo"))
+        demo_phone = "13800000000"
+        legacy_demo = await db.scalar(select(User).where(User.username == "demo"))
+        if legacy_demo is not None:
+            legacy_demo.username = demo_phone
+            legacy_demo.phone = demo_phone
+            legacy_demo.email = f"{demo_phone}@phone.medexam.cn"
+            legacy_demo.full_name = legacy_demo.full_name or "演示医生"
+            legacy_demo.target_exam = "执业资格"
+            legacy_demo.daily_goal = 30
+            await db.commit()
+
+        demo_user = await db.scalar(select(User).where(User.username == demo_phone))
         if demo_user is None:
             db.add(
                 User(
-                    username="demo",
-                    email="demo@medexam.local",
+                    username=demo_phone,
+                    email=f"{demo_phone}@phone.medexam.cn",
+                    phone=demo_phone,
                     hashed_password=pwd_context.hash("demo123"),
                     full_name="演示医生",
                     target_exam="执业资格",
@@ -59,6 +71,11 @@ async def _ensure_sqlite_columns(conn) -> None:
                 "ADD COLUMN exam_category VARCHAR(50) NOT NULL DEFAULT '执业资格'"
             )
         )
+
+    result = await conn.execute(text("PRAGMA table_info(users)"))
+    user_columns = {row[1] for row in result.fetchall()}
+    if "phone" not in user_columns:
+        await conn.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR(20)"))
 
 
 async def _ensure_exam_category_content() -> None:

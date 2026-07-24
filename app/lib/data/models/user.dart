@@ -2,6 +2,7 @@ class User {
   final int id;
   final String username;
   final String email;
+  final String? phone;
   final String? fullName;
   final String targetExam;
   final DateTime? targetDate;
@@ -14,6 +15,7 @@ class User {
     required this.id,
     required this.username,
     required this.email,
+    this.phone,
     this.fullName,
     required this.targetExam,
     this.targetDate,
@@ -27,7 +29,8 @@ class User {
     return User(
       id: json['id'],
       username: json['username'],
-      email: json['email'],
+      email: json['email'] ?? '',
+      phone: json['phone'],
       fullName: json['full_name'],
       targetExam: json['target_exam'] ?? '执业医师',
       targetDate: json['target_date'] != null
@@ -45,6 +48,7 @@ class User {
       'id': id,
       'username': username,
       'email': email,
+      'phone': phone,
       'full_name': fullName,
       'target_exam': targetExam,
       'target_date': targetDate?.toIso8601String(),

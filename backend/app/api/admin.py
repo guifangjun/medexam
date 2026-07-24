@@ -3,22 +3,40 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
-from sqlalchemy import select
+from pydantic import BaseModel
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import create_access_token, verify_password
+from app.api.deps import create_access_token, get_password_hash, verify_password
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.admin_user import AdminUser
 from app.models.course import Course
 from app.models.question import Chapter, Question
+from app.models.user import User
 from app.schemas.admin_user import AdminUserResponse
 from app.schemas.course import CourseCreate, CourseResponse, CourseUpdate
 from app.schemas.question import QuestionCreate, QuestionResponse, QuestionUpdate
-from app.schemas.user import Token
+from app.schemas.user import Token, UserResponse
 
 router = APIRouter(prefix="/api/admin", tags=["管理后台"])
 admin_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/admin/auth/login")
+
+
+class AdminManagedUserCreate(BaseModel):
+    phone: str
+    password: str
+    full_name: Optional[str] = None
+    target_exam: str = "执业资格"
+    is_active: bool = True
+
+
+class AdminManagedUserUpdate(BaseModel):
+    phone: Optional[str] = None
+    password: Optional[str] = None
+    full_name: Optional[str] = None
+    is_active: Optional[bool] = None
+    target_exam: Optional[str] = None
 
 
 async def get_current_admin(
@@ -91,6 +109,122 @@ async def admin_login(
 @router.get("/auth/me", response_model=AdminUserResponse)
 async def admin_me(current_admin: AdminUser = Depends(get_current_admin)):
     return current_admin
+
+
+@router.get("/users", response_model=List[UserResponse])
+async def list_users(
+    keyword: Optional[str] = None,
+    exam_category: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    limit: int = 200,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(User).order_by(User.created_at.desc()).limit(limit)
+    if keyword:
+        like = f"%{keyword.strip()}%"
+        query = query.where(
+            or_(
+                User.username.like(like),
+                User.phone.like(like),
+                User.full_name.like(like),
+            )
+        )
+    if exam_category:
+        query = query.where(User.target_exam == exam_category)
+    if is_active is not None:
+        query = query.where(User.is_active == is_active)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@router.post("/users", response_model=UserResponse)
+async def create_user(
+    user: AdminManagedUserCreate,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    phone = user.phone.strip()
+    if len(phone) != 11 or not phone.isdigit():
+        raise HTTPException(status_code=400, detail="手机号格式不正确")
+    if len(user.password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少 6 位")
+
+    result = await db.execute(
+        select(User).where(or_(User.username == phone, User.phone == phone))
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="手机号已存在")
+
+    db_user = User(
+        username=phone,
+        phone=phone,
+        email=f"{phone}@phone.medexam.cn",
+        hashed_password=get_password_hash(user.password),
+        full_name=user.full_name,
+        target_exam=user.target_exam,
+        is_active=user.is_active,
+    )
+    db.add(db_user)
+    await db.commit()
+    await db.refresh(db_user)
+    return db_user
+
+
+@router.put("/users/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: int,
+    user_update: AdminManagedUserUpdate,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    update_data = user_update.model_dump(exclude_unset=True)
+    if "phone" in update_data:
+        phone = (update_data.pop("phone") or "").strip()
+        if len(phone) != 11 or not phone.isdigit():
+            raise HTTPException(status_code=400, detail="手机号格式不正确")
+        result = await db.execute(
+            select(User).where(
+                or_(User.username == phone, User.phone == phone),
+                User.id != user_id,
+            )
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="手机号已存在")
+        db_user.username = phone
+        db_user.phone = phone
+        db_user.email = f"{phone}@phone.medexam.cn"
+    if "password" in update_data:
+        password = update_data.pop("password")
+        if password:
+            if len(password) < 6:
+                raise HTTPException(status_code=400, detail="密码至少 6 位")
+            db_user.hashed_password = get_password_hash(password)
+    for key, value in update_data.items():
+        setattr(db_user, key, value)
+    await db.commit()
+    await db.refresh(db_user)
+    return db_user
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    await db.delete(db_user)
+    await db.commit()
+    return {"message": "删除成功"}
 
 
 @router.get("/questions", response_model=List[QuestionResponse])

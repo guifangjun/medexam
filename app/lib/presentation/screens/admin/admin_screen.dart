@@ -16,6 +16,7 @@ class AdminScreen extends StatefulWidget {
 class _AdminScreenState extends State<AdminScreen> {
   final _api = ApiService();
   final _keywordCtl = TextEditingController();
+  final _userKeywordCtl = TextEditingController();
   Map<String, dynamic>? _admin;
   var _isCheckingAuth = true;
   var _tab = 0;
@@ -25,6 +26,9 @@ class _AdminScreenState extends State<AdminScreen> {
   List<Chapter> _chapters = [];
   List<Map<String, dynamic>> _questions = [];
   List<Map<String, dynamic>> _courses = [];
+  List<Map<String, dynamic>> _users = [];
+  String? _selectedUserExamCategory;
+  bool? _selectedUserActive;
 
   @override
   void initState() {
@@ -35,6 +39,7 @@ class _AdminScreenState extends State<AdminScreen> {
   @override
   void dispose() {
     _keywordCtl.dispose();
+    _userKeywordCtl.dispose();
     super.dispose();
   }
 
@@ -70,6 +75,7 @@ class _AdminScreenState extends State<AdminScreen> {
       _admin = null;
       _questions = [];
       _courses = [];
+      _users = [];
     });
   }
 
@@ -83,11 +89,17 @@ class _AdminScreenState extends State<AdminScreen> {
       );
       final chapterRes = await _api.getChapters();
       final courseRes = await _api.getAdminCourses();
+      final userRes = await _api.getAdminUsers(
+        keyword: _userKeywordCtl.text.trim(),
+        examCategory: _selectedUserExamCategory,
+        isActive: _selectedUserActive,
+      );
       _chapters = (chapterRes.data as List)
           .map((json) => Chapter.fromJson(json))
           .toList();
       _questions = List<Map<String, dynamic>>.from(questionRes.data);
       _courses = List<Map<String, dynamic>>.from(courseRes.data);
+      _users = List<Map<String, dynamic>>.from(userRes.data);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -128,6 +140,7 @@ class _AdminScreenState extends State<AdminScreen> {
                               children: [
                                 _MetricRow(
                                   questions: _questions.length,
+                                  users: _users.length,
                                   liveCourses: _courses
                                       .where((c) => c['course_type'] == 'live')
                                       .length,
@@ -160,11 +173,32 @@ class _AdminScreenState extends State<AdminScreen> {
                                     onSave: _saveQuestion,
                                     onDelete: _deleteQuestion,
                                   )
-                                else
+                                else if (_tab == 1)
                                   _CourseManager(
                                     courses: _courses,
                                     onSave: _saveCourse,
                                     onDelete: _deleteCourse,
+                                  )
+                                else
+                                  _UserManager(
+                                    users: _users,
+                                    keywordCtl: _userKeywordCtl,
+                                    selectedExamCategory:
+                                        _selectedUserExamCategory,
+                                    selectedActive: _selectedUserActive,
+                                    onExamCategoryChanged: (category) {
+                                      setState(() =>
+                                          _selectedUserExamCategory = category);
+                                      _loadAll();
+                                    },
+                                    onActiveChanged: (active) {
+                                      setState(
+                                          () => _selectedUserActive = active);
+                                      _loadAll();
+                                    },
+                                    onSearch: _loadAll,
+                                    onSave: _saveUser,
+                                    onDelete: _deleteUser,
                                   ),
                               ],
                             ),
@@ -204,6 +238,20 @@ class _AdminScreenState extends State<AdminScreen> {
 
   Future<void> _deleteCourse(int id) async {
     await _api.deleteAdminCourse(id);
+    await _loadAll();
+  }
+
+  Future<void> _saveUser(Map<String, dynamic> data, {int? id}) async {
+    if (id == null) {
+      await _api.createAdminUser(data);
+    } else {
+      await _api.updateAdminUser(id, data);
+    }
+    await _loadAll();
+  }
+
+  Future<void> _deleteUser(int id) async {
+    await _api.deleteAdminUser(id);
     await _loadAll();
   }
 }
@@ -434,6 +482,13 @@ class _AdminSidebar extends StatelessWidget {
               selected: selected == 1,
               onTap: () => onSelected(1),
             ),
+            const SizedBox(height: 8),
+            _NavItem(
+              icon: Icons.groups_rounded,
+              label: '用户管理',
+              selected: selected == 2,
+              onTap: () => onSelected(2),
+            ),
             const Spacer(),
             OutlinedButton.icon(
               onPressed: () => Navigator.pushNamed(context, '/'),
@@ -510,9 +565,9 @@ class _TopBar extends StatelessWidget {
       child: Row(
         children: [
           const SizedBox(width: 16),
-          const Expanded(
+          Expanded(
             child: Text(
-              '题库与课程管理',
+              '题库、课程与用户管理',
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.w800,
@@ -533,11 +588,13 @@ class _TopBar extends StatelessWidget {
 
 class _MetricRow extends StatelessWidget {
   final int questions;
+  final int users;
   final int liveCourses;
   final int recordedCourses;
 
   const _MetricRow({
     required this.questions,
+    required this.users,
     required this.liveCourses,
     required this.recordedCourses,
   });
@@ -548,6 +605,8 @@ class _MetricRow extends StatelessWidget {
       children: [
         _MetricCard(
             label: '题目总数', value: '$questions', color: AppTheme.primary),
+        const SizedBox(width: 12),
+        _MetricCard(label: '用户数', value: '$users', color: AppTheme.accent),
         const SizedBox(width: 12),
         _MetricCard(label: '直播课', value: '$liveCourses', color: AppTheme.error),
         const SizedBox(width: 12),
@@ -1191,6 +1250,312 @@ class _CourseManager extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _UserManager extends StatelessWidget {
+  final List<Map<String, dynamic>> users;
+  final TextEditingController keywordCtl;
+  final String? selectedExamCategory;
+  final bool? selectedActive;
+  final ValueChanged<String?> onExamCategoryChanged;
+  final ValueChanged<bool?> onActiveChanged;
+  final Future<void> Function() onSearch;
+  final Future<void> Function(Map<String, dynamic> data, {int? id}) onSave;
+  final Future<void> Function(int id) onDelete;
+
+  const _UserManager({
+    required this.users,
+    required this.keywordCtl,
+    required this.selectedExamCategory,
+    required this.selectedActive,
+    required this.onExamCategoryChanged,
+    required this.onActiveChanged,
+    required this.onSearch,
+    required this.onSave,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '用户管理',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+              ),
+              Text(
+                '共 ${users.length} 个用户',
+                style: const TextStyle(color: AppTheme.textSecondary),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: () => _showUserDialog(context),
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text('新增用户'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              SizedBox(
+                width: 260,
+                child: TextField(
+                  controller: keywordCtl,
+                  decoration: const InputDecoration(
+                    labelText: '搜索手机号 / 姓名',
+                    prefixIcon: Icon(Icons.search_rounded),
+                  ),
+                  onSubmitted: (_) => onSearch(),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 180,
+                child: DropdownButtonFormField<String?>(
+                  value: selectedExamCategory,
+                  decoration: const InputDecoration(labelText: '考试类别'),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('全部考试'),
+                    ),
+                    ...AppConstants.examCategories.map(
+                      (item) => DropdownMenuItem<String?>(
+                        value: item,
+                        child: Text(item),
+                      ),
+                    ),
+                  ],
+                  onChanged: onExamCategoryChanged,
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 150,
+                child: DropdownButtonFormField<bool?>(
+                  value: selectedActive,
+                  decoration: const InputDecoration(labelText: '账号状态'),
+                  items: const [
+                    DropdownMenuItem<bool?>(value: null, child: Text('全部状态')),
+                    DropdownMenuItem<bool?>(value: true, child: Text('启用')),
+                    DropdownMenuItem<bool?>(value: false, child: Text('停用')),
+                  ],
+                  onChanged: onActiveChanged,
+                ),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: onSearch,
+                icon: const Icon(Icons.search_rounded),
+                label: const Text('查询'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          if (users.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 42),
+              child: Center(
+                child: Text(
+                  '暂无用户',
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+              ),
+            )
+          else ...[
+            const _DataHeader(
+              columns: ['ID', '手机号', '姓名', '考试类别', '状态', '注册时间', '操作'],
+              flexes: [1, 2, 2, 2, 1, 2, 2],
+            ),
+            ...users.map((user) {
+              final active = user['is_active'] == true;
+              return _DataRowCard(
+                cells: [
+                  '${user['id'] ?? ''}',
+                  '${user['phone'] ?? user['username'] ?? '-'}',
+                  '${user['full_name'] ?? '-'}',
+                  '${user['target_exam'] ?? '-'}',
+                  active ? '启用' : '停用',
+                  _formatDate(user['created_at']),
+                ],
+                flexes: const [1, 2, 2, 2, 1, 2],
+                actions: [
+                  Switch(
+                    value: active,
+                    activeColor: AppTheme.success,
+                    onChanged: (value) =>
+                        onSave({'is_active': value}, id: user['id']),
+                  ),
+                  IconButton(
+                    tooltip: '编辑用户',
+                    onPressed: () => _showUserDialog(context, user),
+                    icon: const Icon(Icons.edit_rounded),
+                  ),
+                  IconButton(
+                    tooltip: '删除用户',
+                    onPressed: () => _confirmDelete(context, user),
+                    icon: const Icon(Icons.delete_outline_rounded,
+                        color: AppTheme.error),
+                  ),
+                ],
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(dynamic value) {
+    final raw = value?.toString();
+    if (raw == null || raw.isEmpty) return '-';
+    return raw.length >= 10 ? raw.substring(0, 10) : raw;
+  }
+
+  void _showUserDialog(BuildContext context, [Map<String, dynamic>? user]) {
+    final isCreate = user == null;
+    final phoneCtl = TextEditingController(
+        text: '${user?['phone'] ?? user?['username'] ?? ''}');
+    final nameCtl = TextEditingController(text: '${user?['full_name'] ?? ''}');
+    final passwordCtl = TextEditingController();
+    var targetExam =
+        (user?['target_exam'] ?? AppConstants.examCategories.first).toString();
+    if (!AppConstants.examCategories.contains(targetExam)) {
+      targetExam = AppConstants.examCategories.first;
+    }
+    var isActive = user?['is_active'] != false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(isCreate ? '新增用户' : '编辑用户'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: phoneCtl,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: '手机号',
+                      prefixIcon: Icon(Icons.phone_iphone_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: nameCtl,
+                    decoration: const InputDecoration(
+                      labelText: '姓名',
+                      prefixIcon: Icon(Icons.person_outline_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: passwordCtl,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: isCreate ? '初始密码' : '新密码（留空不修改）',
+                      prefixIcon: const Icon(Icons.lock_outline_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: targetExam,
+                    decoration: const InputDecoration(labelText: '考试类别'),
+                    items: AppConstants.examCategories
+                        .map((item) =>
+                            DropdownMenuItem(value: item, child: Text(item)))
+                        .toList(),
+                    onChanged: (value) =>
+                        setDialogState(() => targetExam = value!),
+                  ),
+                  SwitchListTile(
+                    value: isActive,
+                    onChanged: (value) =>
+                        setDialogState(() => isActive = value),
+                    title: const Text('启用账号'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final phone = phoneCtl.text.trim();
+                if (phone.length != 11 || int.tryParse(phone) == null) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('请输入正确的 11 位手机号')),
+                  );
+                  return;
+                }
+                final password = passwordCtl.text;
+                if (isCreate && password.length < 6) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('初始密码至少 6 位')),
+                  );
+                  return;
+                }
+                final data = {
+                  'phone': phone,
+                  'full_name': nameCtl.text.trim(),
+                  'target_exam': targetExam,
+                  'is_active': isActive,
+                  if (password.isNotEmpty) 'password': password,
+                };
+                await onSave(data, id: user?['id']);
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(
+      BuildContext context, Map<String, dynamic> user) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除用户'),
+        content: Text(
+          '确定删除用户「${user['phone'] ?? user['username'] ?? user['id']}」吗？删除后该用户的登录账号将不可用。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await onDelete(user['id']);
+    }
   }
 }
 

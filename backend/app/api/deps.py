@@ -6,6 +6,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from typing import Optional
+import random
 
 from app.core.database import get_db
 from app.core.config import settings
@@ -55,23 +56,44 @@ async def get_current_user(
 
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
+_sms_codes: dict[str, str] = {}
+
+
+@router.post("/sms-code")
+async def send_sms_code(payload: dict):
+    phone = str(payload.get("phone", "")).strip()
+    if len(phone) != 11 or not phone.isdigit():
+        raise HTTPException(status_code=400, detail="手机号格式不正确")
+    code = f"{random.randint(0, 999999):06d}"
+    _sms_codes[phone] = code
+    # 本地演示环境没有真实短信网关，直接返回验证码，前端用于提示用户。
+    return {"message": "验证码已发送", "code": code}
 
 
 @router.post("/register", response_model=UserResponse)
 async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
-    # 检查用户名是否存在
-    result = await db.execute(select(User).where(User.username == user.username))
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="用户名已存在")
+    if not user.phone:
+        raise HTTPException(status_code=400, detail="请输入手机号")
+    expected_code = _sms_codes.get(user.phone)
+    if not expected_code or user.sms_code != expected_code:
+        raise HTTPException(status_code=400, detail="手机验证码错误")
 
-    # 检查邮箱是否存在
-    result = await db.execute(select(User).where(User.email == user.email))
+    username = user.phone
+    # 检查用户名是否存在
+    result = await db.execute(select(User).where(User.username == username))
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="邮箱已被注册")
+        raise HTTPException(status_code=400, detail="手机号已注册")
+
+    result = await db.execute(select(User).where(User.phone == user.phone))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="手机号已注册")
+
+    email = user.email or f"{user.phone}@phone.medexam.cn"
 
     db_user = User(
-        username=user.username,
-        email=user.email,
+        username=username,
+        email=email,
+        phone=user.phone,
         hashed_password=get_password_hash(user.password),
         full_name=user.full_name,
         target_exam=user.target_exam,
@@ -81,16 +103,40 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     db.add(db_user)
     await db.commit()
     await db.refresh(db_user)
+    _sms_codes.pop(user.phone, None)
     return db_user
 
 
 @router.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.username == form_data.username))
+    phone = form_data.username.strip()
+    if len(phone) != 11 or not phone.isdigit():
+        raise HTTPException(status_code=401, detail="登录账号必须是手机号")
+    result = await db.execute(select(User).where(User.phone == phone))
     user = result.scalar_one_or_none()
     if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="用户名或密码错误")
+        raise HTTPException(status_code=401, detail="手机号或密码错误")
 
+    access_token = create_access_token(data={"user_id": user.id, "username": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/login/sms", response_model=Token)
+async def login_with_sms(payload: dict, db: AsyncSession = Depends(get_db)):
+    phone = str(payload.get("phone", "")).strip()
+    sms_code = str(payload.get("sms_code", "")).strip()
+    if len(phone) != 11 or not phone.isdigit():
+        raise HTTPException(status_code=401, detail="登录账号必须是手机号")
+    expected_code = _sms_codes.get(phone)
+    if not expected_code or sms_code != expected_code:
+        raise HTTPException(status_code=401, detail="手机验证码错误")
+
+    result = await db.execute(select(User).where(User.phone == phone))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="手机号未注册")
+
+    _sms_codes.pop(phone, None)
     access_token = create_access_token(data={"user_id": user.id, "username": user.username})
     return {"access_token": access_token, "token_type": "bearer"}
 

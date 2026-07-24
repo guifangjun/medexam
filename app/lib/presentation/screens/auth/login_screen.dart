@@ -18,9 +18,11 @@ class _LoginScreenState extends State<LoginScreen>
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _smsCodeController = TextEditingController();
   final _fullNameController = TextEditingController();
   bool _isLogin = true;
+  bool _useSmsLogin = true;
   bool _obscurePassword = true;
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
@@ -40,7 +42,8 @@ class _LoginScreenState extends State<LoginScreen>
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
-    _emailController.dispose();
+    _phoneController.dispose();
+    _smsCodeController.dispose();
     _fullNameController.dispose();
     _animController.dispose();
     super.dispose();
@@ -52,12 +55,19 @@ class _LoginScreenState extends State<LoginScreen>
     final auth = context.read<AuthProvider>();
     bool success;
     if (_isLogin) {
-      success = await auth.login(
-          _usernameController.text.trim(), _passwordController.text);
+      if (_useSmsLogin) {
+        success = await auth.loginWithSms(
+          phone: _usernameController.text.trim(),
+          smsCode: _smsCodeController.text.trim(),
+        );
+      } else {
+        success = await auth.login(
+            _usernameController.text.trim(), _passwordController.text);
+      }
     } else {
       success = await auth.register(
-        username: _usernameController.text.trim(),
-        email: _emailController.text.trim(),
+        phone: _phoneController.text.trim(),
+        smsCode: _smsCodeController.text.trim(),
         password: _passwordController.text,
         fullName: _fullNameController.text.trim().isNotEmpty
             ? _fullNameController.text.trim()
@@ -83,6 +93,36 @@ class _LoginScreenState extends State<LoginScreen>
         backgroundColor: AppTheme.error,
       ),
     );
+  }
+
+  Future<void> _sendSmsCode() async {
+    final phone =
+        (_isLogin ? _usernameController.text : _phoneController.text).trim();
+    if (phone.length != 11 || int.tryParse(phone) == null) {
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text('请输入正确的 11 位手机号'),
+          backgroundColor: AppTheme.error,
+        ),
+      );
+      return;
+    }
+    final code = await context.read<AuthProvider>().sendSmsCode(phone);
+    if (!mounted) return;
+    if (code != null) {
+      _smsCodeController.text = code;
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        SnackBar(
+          content: Text('验证码已发送。本地演示验证码：$code'),
+          backgroundColor: AppTheme.success,
+        ),
+      );
+    } else {
+      final error = context.read<AuthProvider>().error ?? '验证码发送失败';
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text(error), backgroundColor: AppTheme.error),
+      );
+    }
   }
 
   @override
@@ -170,55 +210,117 @@ class _LoginScreenState extends State<LoginScreen>
                               ),
                               const SizedBox(height: 14),
                               _buildField(
-                                controller: _emailController,
-                                label: '邮箱',
-                                hint: 'your@email.com',
-                                icon: Icons.email_outlined,
-                                keyboardType: TextInputType.emailAddress,
+                                controller: _phoneController,
+                                label: '手机号',
+                                hint: '请输入手机号',
+                                icon: Icons.phone_iphone_rounded,
+                                keyboardType: TextInputType.phone,
                                 validator: (v) {
-                                  if (!_isLogin && (v == null || v.isEmpty))
-                                    return '请输入邮箱';
-                                  if (!_isLogin && !v!.contains('@'))
-                                    return '邮箱格式不正确';
+                                  if (!_isLogin && (v == null || v.isEmpty)) {
+                                    return '请输入手机号';
+                                  }
+                                  if (!_isLogin &&
+                                      (v!.length != 11 ||
+                                          int.tryParse(v) == null)) {
+                                    return '手机号格式不正确';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 14),
+                              _buildField(
+                                controller: _smsCodeController,
+                                label: '手机验证码',
+                                hint: '请输入验证码',
+                                icon: Icons.verified_outlined,
+                                keyboardType: TextInputType.number,
+                                suffix: TextButton(
+                                  onPressed: _sendSmsCode,
+                                  child: const Text('获取验证码'),
+                                ),
+                                validator: (v) {
+                                  if (!_isLogin && (v == null || v.isEmpty)) {
+                                    return '请输入验证码';
+                                  }
+                                  if (!_isLogin && v!.length != 6) {
+                                    return '验证码为 6 位';
+                                  }
                                   return null;
                                 },
                               ),
                               const SizedBox(height: 14),
                             ],
-                            _buildField(
-                              controller: _usernameController,
-                              label: '用户名',
-                              hint: '输入用户名',
-                              icon: Icons.account_circle_outlined,
-                              validator: (v) {
-                                if (v == null || v.isEmpty) return '请输入用户名';
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 14),
-                            _buildField(
-                              controller: _passwordController,
-                              label: '密码',
-                              hint: _isLogin ? '输入密码' : '至少 6 位密码',
-                              icon: Icons.lock_outline,
-                              obscure: _obscurePassword,
-                              suffix: IconButton(
-                                icon: Icon(
-                                  _obscurePassword
-                                      ? Icons.visibility_off_outlined
-                                      : Icons.visibility_outlined,
-                                  size: 20,
-                                ),
-                                onPressed: () => setState(
-                                    () => _obscurePassword = !_obscurePassword),
+                            if (_isLogin) ...[
+                              _buildField(
+                                controller: _usernameController,
+                                label: '手机号',
+                                hint: '请输入手机号',
+                                icon: Icons.phone_iphone_rounded,
+                                keyboardType: TextInputType.phone,
+                                validator: (v) {
+                                  if (v == null || v.isEmpty) {
+                                    return '请输入手机号';
+                                  }
+                                  if (v.length != 11 ||
+                                      int.tryParse(v) == null) {
+                                    return '手机号格式不正确';
+                                  }
+                                  return null;
+                                },
                               ),
-                              validator: (v) {
-                                if (v == null || v.isEmpty) return '请输入密码';
-                                if (!_isLogin && v.length < 6)
-                                  return '密码至少 6 位';
-                                return null;
-                              },
-                            ),
+                              const SizedBox(height: 14),
+                              _buildLoginModeSwitch(),
+                              const SizedBox(height: 14),
+                            ],
+                            if (_isLogin && _useSmsLogin) ...[
+                              _buildField(
+                                controller: _smsCodeController,
+                                label: '手机验证码',
+                                hint: '请输入验证码',
+                                icon: Icons.verified_outlined,
+                                keyboardType: TextInputType.number,
+                                suffix: TextButton(
+                                  onPressed: _sendSmsCode,
+                                  child: const Text('获取验证码'),
+                                ),
+                                validator: (v) {
+                                  if (v == null || v.isEmpty) {
+                                    return '请输入验证码';
+                                  }
+                                  if (v.length != 6) {
+                                    return '验证码为 6 位';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ] else ...[
+                              _buildField(
+                                controller: _passwordController,
+                                label: '密码',
+                                hint: _isLogin ? '输入密码' : '至少 6 位密码',
+                                icon: Icons.lock_outline,
+                                obscure: _obscurePassword,
+                                suffix: IconButton(
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                    size: 20,
+                                  ),
+                                  onPressed: () => setState(() =>
+                                      _obscurePassword = !_obscurePassword),
+                                ),
+                                validator: (v) {
+                                  if (v == null || v.isEmpty) {
+                                    return '请输入密码';
+                                  }
+                                  if (!_isLogin && v.length < 6) {
+                                    return '密码至少 6 位';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -269,7 +371,11 @@ class _LoginScreenState extends State<LoginScreen>
                           const SizedBox(width: 4),
                           GestureDetector(
                             onTap: () {
-                              setState(() => _isLogin = !_isLogin);
+                              setState(() {
+                                _isLogin = !_isLogin;
+                                _useSmsLogin = _isLogin;
+                                _smsCodeController.clear();
+                              });
                               _animController.reset();
                               _animController.forward();
                             },
@@ -291,12 +397,13 @@ class _LoginScreenState extends State<LoginScreen>
                   onPressed: () {
                     setState(() {
                       _isLogin = true;
-                      _usernameController.text = 'demo';
+                      _useSmsLogin = false;
+                      _usernameController.text = '13800000000';
                       _passwordController.text = 'demo123';
                     });
                   },
                   icon: const Icon(Icons.account_circle_outlined, size: 18),
-                  label: const Text('使用演示账号 demo / demo123'),
+                  label: const Text('使用演示账号 13800000000 / demo123'),
                   style: TextButton.styleFrom(
                     foregroundColor: AppTheme.primary,
                   ),
@@ -330,6 +437,90 @@ class _LoginScreenState extends State<LoginScreen>
         hintText: hint,
         prefixIcon: Icon(icon, size: 20),
         suffixIcon: suffix,
+      ),
+    );
+  }
+
+  Widget _buildLoginModeSwitch() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.primary.withOpacity(0.12)),
+      ),
+      child: Row(
+        children: [
+          _buildLoginModeItem(
+            selected: _useSmsLogin,
+            icon: Icons.sms_outlined,
+            label: '验证码登录',
+            onTap: () => setState(() => _useSmsLogin = true),
+          ),
+          _buildLoginModeItem(
+            selected: !_useSmsLogin,
+            icon: Icons.lock_outline,
+            label: '密码登录',
+            onTap: () => setState(() => _useSmsLogin = false),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoginModeItem({
+    required bool selected,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          decoration: BoxDecoration(
+            gradient: selected
+                ? const LinearGradient(
+                    colors: [AppTheme.primary, AppTheme.accent],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  )
+                : null,
+            color: selected ? null : Colors.transparent,
+            borderRadius: BorderRadius.circular(15),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: AppTheme.primary.withOpacity(0.24),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 17,
+                color: selected ? Colors.white : AppTheme.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? Colors.white : AppTheme.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

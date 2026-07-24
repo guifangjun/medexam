@@ -42,13 +42,13 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> login(String username, String password) async {
+  Future<bool> login(String phone, String password) async {
     try {
       _isLoading = true;
       _error = null;
       notifyListeners();
 
-      final res = await _api.login(username, password);
+      final res = await _api.login(phone, password);
       await _api.setToken(res.data['access_token']);
 
       final userRes = await _api.getMe();
@@ -56,10 +56,38 @@ class AuthProvider extends ChangeNotifier {
       _isLoggedIn = true;
       return true;
     } on DioException catch (e) {
-      _error = _extractErrorMessage(e, '登录失败，请检查用户名和密码');
+      _error = _extractErrorMessage(e, '登录失败，请检查手机号和密码');
       return false;
     } catch (e) {
-      _error = '登录失败，请检查用户名和密码';
+      _error = '登录失败，请检查手机号和密码';
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> loginWithSms({
+    required String phone,
+    required String smsCode,
+  }) async {
+    try {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+
+      final res = await _api.loginWithSms(phone, smsCode);
+      await _api.setToken(res.data['access_token']);
+
+      final userRes = await _api.getMe();
+      _user = User.fromJson(userRes.data);
+      _isLoggedIn = true;
+      return true;
+    } on DioException catch (e) {
+      _error = _extractErrorMessage(e, '验证码登录失败');
+      return false;
+    } catch (_) {
+      _error = '验证码登录失败';
       return false;
     } finally {
       _isLoading = false;
@@ -68,8 +96,8 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<bool> register({
-    required String username,
-    required String email,
+    required String phone,
+    required String smsCode,
     required String password,
     String? fullName,
   }) async {
@@ -79,20 +107,40 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
 
       await _api.register({
-        'username': username,
-        'email': email,
+        'username': phone,
+        'phone': phone,
+        'sms_code': smsCode,
         'password': password,
         if (fullName != null) 'full_name': fullName,
       });
 
       // 注册成功后自动登录
-      return await login(username, password);
+      return await login(phone, password);
     } on DioException catch (e) {
       _error = _extractErrorMessage(e, '注册失败，请稍后重试');
       return false;
     } catch (e) {
       _error = '注册失败，请稍后重试';
       return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String?> sendSmsCode(String phone) async {
+    try {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+      final res = await _api.sendSmsCode(phone);
+      return res.data['code']?.toString();
+    } on DioException catch (e) {
+      _error = _extractErrorMessage(e, '验证码发送失败');
+      return null;
+    } catch (_) {
+      _error = '验证码发送失败';
+      return null;
     } finally {
       _isLoading = false;
       notifyListeners();

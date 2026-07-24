@@ -32,6 +32,7 @@ class ApiConstants {
   static const String adminMe = '$admin/auth/me';
   static const String adminQuestions = '$admin/questions';
   static const String adminCourses = '$admin/courses';
+  static const String adminUsers = '$admin/users';
 }
 
 class AppConstants {

@@ -100,6 +100,10 @@ class ApiService {
     return _dio.post(ApiConstants.register, data: data);
   }
 
+  Future<Response> sendSmsCode(String phone) async {
+    return _dio.post('/api/auth/sms-code', data: {'phone': phone});
+  }
+
   Future<Response> login(String username, String password) async {
     return _dio.post(
       ApiConstants.login,
@@ -111,6 +115,13 @@ class ApiService {
         contentType: Headers.formUrlEncodedContentType,
       ),
     );
+  }
+
+  Future<Response> loginWithSms(String phone, String smsCode) async {
+    return _dio.post('/api/auth/login/sms', data: {
+      'phone': phone,
+      'sms_code': smsCode,
+    });
   }
 
   Future<Response> getMe() async {
@@ -245,6 +256,32 @@ class ApiService {
 
   Future<Response> deleteAdminCourse(int courseId) async {
     return _dio.delete('${ApiConstants.adminCourses}/$courseId');
+  }
+
+  Future<Response> getAdminUsers({
+    String? keyword,
+    String? examCategory,
+    bool? isActive,
+  }) async {
+    return _dio.get(ApiConstants.adminUsers, queryParameters: {
+      if (keyword != null && keyword.isNotEmpty) 'keyword': keyword,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+      if (isActive != null) 'is_active': isActive,
+    });
+  }
+
+  Future<Response> createAdminUser(Map<String, dynamic> data) async {
+    return _dio.post(ApiConstants.adminUsers, data: data);
+  }
+
+  Future<Response> updateAdminUser(
+      int userId, Map<String, dynamic> data) async {
+    return _dio.put('${ApiConstants.adminUsers}/$userId', data: data);
+  }
+
+  Future<Response> deleteAdminUser(int userId) async {
+    return _dio.delete('${ApiConstants.adminUsers}/$userId');
   }
 
   // ============ AI Chat ============
