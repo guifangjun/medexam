@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../data/models/study.dart';
 import '../../../data/providers/study_provider.dart';
 import '../../../data/providers/question_provider.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/app_messenger.dart';
+import '../../../core/theme/app_theme.dart';
 import '../practice/practice_screen.dart';
 
 class StudyScreen extends StatefulWidget {
@@ -26,6 +27,7 @@ class _StudyScreenState extends State<StudyScreen>
       final p = context.read<StudyProvider>();
       p.loadStudyPlans();
       p.loadTodayTask();
+      p.loadTodayStats();
     });
   }
 
@@ -91,8 +93,12 @@ class _TodayTab extends StatelessWidget {
     return Consumer<StudyProvider>(
       builder: (context, provider, _) {
         final task = provider.todayTask;
+        final stats = provider.todayStats;
         return RefreshIndicator(
-          onRefresh: () => provider.loadTodayTask(),
+          onRefresh: () async {
+            await provider.loadTodayTask();
+            await provider.loadTodayStats();
+          },
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(20),
@@ -168,11 +174,160 @@ class _TodayTab extends StatelessWidget {
                           ],
                         ),
                       ),
+                      const SizedBox(height: 24),
+                      const Text('今日数据',
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.textPrimary)),
+                      const SizedBox(height: 14),
+                      _TodayStatsRow(stats: stats),
+                      const SizedBox(height: 24),
+                      const Text('今日任务',
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.textPrimary)),
+                      const SizedBox(height: 14),
+                      _TodayTaskSummary(task: task),
                     ],
                   ),
           ),
         );
       },
+    );
+  }
+}
+
+class _TodayStatsRow extends StatelessWidget {
+  final StudyStats? stats;
+
+  const _TodayStatsRow({required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      _TodayStatCard(
+        icon: Icons.check_circle_rounded,
+        label: '正确率',
+        value: '${((stats?.accuracyRate ?? 0) * 100).toInt()}%',
+        color: AppTheme.success,
+      ),
+      _TodayStatCard(
+        icon: Icons.quiz_rounded,
+        label: '做题数',
+        value: '${stats?.totalQuestions ?? 0}',
+        color: AppTheme.primary,
+      ),
+      _TodayStatCard(
+        icon: Icons.timer_rounded,
+        label: '时长',
+        value: '${stats?.timeSpent ?? 0}min',
+        color: AppTheme.accent,
+      ),
+      _TodayStatCard(
+        icon: Icons.local_fire_department_rounded,
+        label: '连续',
+        value: '${stats?.aiQuestions ?? 0}d',
+        color: Colors.orange,
+      ),
+    ];
+    return Row(
+      children: items
+          .map(
+            (item) => Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: item,
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _TodayStatCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _TodayStatCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TodayTaskSummary extends StatelessWidget {
+  final DailyTask task;
+
+  const _TodayTaskSummary({required this.task});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            task.isCompleted
+                ? Icons.celebration_rounded
+                : Icons.menu_book_rounded,
+            color: AppTheme.primary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              task.isCompleted
+                  ? '今日任务已完成'
+                  : '今日任务 ${task.completedQuestions}/${task.targetQuestions} 题',
+              style: const TextStyle(
+                color: AppTheme.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -547,69 +702,78 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final w = provider.wrongQuestions[index];
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: AppTheme.divider),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 42,
-                            height: 42,
-                            decoration: BoxDecoration(
-                              color: w.isMastered
-                                  ? AppTheme.success.withOpacity(0.1)
-                                  : AppTheme.error.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => _showReviewSheet(context, w),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppTheme.divider),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: w.isMastered
+                                    ? AppTheme.success.withOpacity(0.1)
+                                    : AppTheme.error.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                w.isMastered
+                                    ? Icons.check_circle_rounded
+                                    : Icons.close_rounded,
+                                color: w.isMastered
+                                    ? AppTheme.success
+                                    : AppTheme.error,
+                                size: 22,
+                              ),
                             ),
-                            child: Icon(
-                              w.isMastered
-                                  ? Icons.check_circle_rounded
-                                  : Icons.close_rounded,
-                              color: w.isMastered
-                                  ? AppTheme.success
-                                  : AppTheme.error,
-                              size: 22,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('错题 #${w.questionId}',
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w600)),
-                                const SizedBox(height: 4),
-                                Row(
-                                  children: [
-                                    if (w.wrongReason != null) ...[
-                                      _MiniTag(w.wrongReason!),
-                                      const SizedBox(width: 8),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                      w.questionContent?.isNotEmpty == true
+                                          ? w.questionContent!
+                                          : '错题 #${w.questionId}',
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600)),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      if (w.wrongReason != null) ...[
+                                        _MiniTag(w.wrongReason!),
+                                        const SizedBox(width: 8),
+                                      ],
+                                      Icon(Icons.refresh_rounded,
+                                          size: 14, color: AppTheme.textHint),
+                                      const SizedBox(width: 2),
+                                      Text('${w.reviewCount} 次',
+                                          style: const TextStyle(
+                                              fontSize: 12,
+                                              color: AppTheme.textSecondary)),
                                     ],
-                                    Icon(Icons.refresh_rounded,
-                                        size: 14, color: AppTheme.textHint),
-                                    const SizedBox(width: 2),
-                                    Text('${w.reviewCount} 次',
-                                        style: const TextStyle(
-                                            fontSize: 12,
-                                            color: AppTheme.textSecondary)),
-                                  ],
-                                ),
-                              ],
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          if (w.isMastered)
-                            const Icon(Icons.check_circle_rounded,
-                                color: AppTheme.success, size: 22)
-                          else
-                            const Icon(Icons.chevron_right,
-                                color: AppTheme.textHint, size: 20),
-                        ],
+                            if (w.isMastered)
+                              const Icon(Icons.check_circle_rounded,
+                                  color: AppTheme.success, size: 22)
+                            else
+                              const Icon(Icons.chevron_right,
+                                  color: AppTheme.textHint, size: 20),
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -618,6 +782,199 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
               ),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  void _showReviewSheet(BuildContext context, WrongQuestion wrong) {
+    if (wrong.questionContent == null || wrong.questionOptions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('题目内容缺失，无法复习')),
+      );
+      return;
+    }
+
+    String? selectedAnswer;
+    bool? isCorrect;
+    var isSubmitting = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final resultColor = isCorrect == true
+                ? AppTheme.success
+                : isCorrect == false
+                    ? AppTheme.error
+                    : AppTheme.primary;
+            return DraggableScrollableSheet(
+              initialChildSize: 0.78,
+              minChildSize: 0.45,
+              maxChildSize: 0.92,
+              expand: false,
+              builder: (context, scrollController) {
+                return ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(24),
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 42,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: AppTheme.divider,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        _MiniTag('错题复习'),
+                        const SizedBox(width: 8),
+                        _MiniTag('复习 ${wrong.reviewCount} 次'),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      wrong.questionContent!,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        height: 1.55,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    if (wrong.questionTags.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        wrong.questionTags.join(' · '),
+                        style: const TextStyle(
+                            fontSize: 12, color: AppTheme.textSecondary),
+                      ),
+                    ],
+                    const SizedBox(height: 18),
+                    ...wrong.questionOptions.entries.map((entry) {
+                      final isSelected = selectedAnswer == entry.key;
+                      final isRight = isCorrect != null &&
+                          entry.key == wrong.questionAnswer;
+                      final isWrong = isCorrect == false && isSelected;
+                      final borderColor = isRight
+                          ? AppTheme.success
+                          : isWrong
+                              ? AppTheme.error
+                              : isSelected
+                                  ? AppTheme.primary
+                                  : AppTheme.divider;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: isCorrect == null
+                              ? () => setSheetState(
+                                  () => selectedAnswer = entry.key)
+                              : null,
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: borderColor.withOpacity(0.06),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: borderColor),
+                            ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  entry.key,
+                                  style: TextStyle(
+                                    color: borderColor,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(child: Text(entry.value)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                    if (isCorrect != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: resultColor.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(14),
+                          border:
+                              Border.all(color: resultColor.withOpacity(0.3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isCorrect == true
+                                  ? '答对了'
+                                  : '答错了，正确答案：${wrong.questionAnswer ?? '-'}',
+                              style: TextStyle(
+                                  color: resultColor,
+                                  fontWeight: FontWeight.w800),
+                            ),
+                            if (wrong.questionExplanation?.isNotEmpty ==
+                                true) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                wrong.questionExplanation!,
+                                style: const TextStyle(
+                                  color: AppTheme.textPrimary,
+                                  height: 1.5,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: isCorrect != null
+                            ? () => Navigator.pop(sheetContext)
+                            : selectedAnswer == null || isSubmitting
+                                ? null
+                                : () async {
+                                    final correct =
+                                        selectedAnswer == wrong.questionAnswer;
+                                    setSheetState(() {
+                                      isSubmitting = true;
+                                      isCorrect = correct;
+                                    });
+                                    final ok = await context
+                                        .read<StudyProvider>()
+                                        .reviewWrongQuestion(wrong.id, correct);
+                                    if (!context.mounted) return;
+                                    setSheetState(() => isSubmitting = false);
+                                    if (!ok) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(content: Text('复习记录失败')),
+                                      );
+                                    }
+                                  },
+                        child: Text(isCorrect == null ? '提交答案' : '完成'),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
         );
       },
     );

@@ -77,6 +77,12 @@ class DailyTask {
 class WrongQuestion {
   final int id;
   final int questionId;
+  final String? questionContent;
+  final Map<String, String> questionOptions;
+  final String? questionAnswer;
+  final String? questionExplanation;
+  final int? questionDifficulty;
+  final List<String> questionTags;
   final String? wrongReason;
   final int reviewCount;
   final bool isMastered;
@@ -86,6 +92,12 @@ class WrongQuestion {
   WrongQuestion({
     required this.id,
     required this.questionId,
+    this.questionContent,
+    this.questionOptions = const {},
+    this.questionAnswer,
+    this.questionExplanation,
+    this.questionDifficulty,
+    this.questionTags = const [],
     this.wrongReason,
     required this.reviewCount,
     required this.isMastered,
@@ -97,6 +109,12 @@ class WrongQuestion {
     return WrongQuestion(
       id: json['id'],
       questionId: json['question_id'],
+      questionContent: json['question_content'],
+      questionOptions: Map<String, String>.from(json['question_options'] ?? {}),
+      questionAnswer: json['question_answer'],
+      questionExplanation: json['question_explanation'],
+      questionDifficulty: json['question_difficulty'],
+      questionTags: List<String>.from(json['question_tags'] ?? []),
       wrongReason: json['wrong_reason'],
       reviewCount: json['review_count'] ?? 0,
       isMastered: json['is_mastered'] ?? false,

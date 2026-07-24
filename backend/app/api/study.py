@@ -160,13 +160,33 @@ async def get_wrong_questions(
 ):
     """获取错题本"""
     result = await db.execute(
-        select(WrongQuestion)
+        select(WrongQuestion, Question)
+        .join(Question, WrongQuestion.question_id == Question.id)
         .where(WrongQuestion.user_id == current_user.id)
         .order_by(WrongQuestion.created_at.desc())
         .offset(skip)
         .limit(limit)
     )
-    return result.scalars().all()
+    wrong_questions = []
+    for wrong_q, question in result.all():
+        wrong_questions.append(
+            {
+                "id": wrong_q.id,
+                "question_id": wrong_q.question_id,
+                "question_content": question.content,
+                "question_options": question.options or {},
+                "question_answer": question.answer,
+                "question_explanation": question.explanation,
+                "question_difficulty": question.difficulty,
+                "question_tags": question.知识点 or [],
+                "wrong_reason": wrong_q.wrong_reason,
+                "review_count": wrong_q.review_count,
+                "is_mastered": wrong_q.is_mastered,
+                "next_review_at": wrong_q.next_review_at,
+                "created_at": wrong_q.created_at,
+            }
+        )
+    return wrong_questions
 
 
 @router.put("/wrong/{wrong_id}/reason")

@@ -19,6 +19,11 @@ class SpaHandler(http.server.SimpleHTTPRequestHandler):
         super().do_HEAD()
 
 
+class ThreadingReusableTCPServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", required=True)
@@ -29,7 +34,7 @@ def main():
     handler = lambda *handler_args, **handler_kwargs: SpaHandler(
         *handler_args, directory=args.directory, **handler_kwargs
     )
-    with socketserver.TCPServer((args.host, args.port), handler) as httpd:
+    with ThreadingReusableTCPServer((args.host, args.port), handler) as httpd:
         print(f"Serving MedExam Web at http://{args.host}:{args.port}")
         httpd.serve_forever()
 

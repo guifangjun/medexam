@@ -1,11 +1,17 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 
 
 class WrongQuestionResponse(BaseModel):
     id: int
     question_id: int
+    question_content: Optional[str] = None
+    question_options: Dict[str, str] = {}
+    question_answer: Optional[str] = None
+    question_explanation: Optional[str] = None
+    question_difficulty: Optional[int] = None
+    question_tags: List[str] = []
     wrong_reason: Optional[str]
     review_count: int
     is_mastered: bool
