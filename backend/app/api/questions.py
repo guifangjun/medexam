@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
 from datetime import datetime
+from jose import JWTError, jwt
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
 from app.models.question import Question, QuestionRecord, Chapter
@@ -15,6 +17,27 @@ from app.schemas.question import (
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/api/questions", tags=["题库"])
+
+
+async def get_optional_user(
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[User]:
+    if not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id: int = payload.get("user_id")
+        if user_id is None:
+            return None
+    except JWTError:
+        return None
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    return user if user and user.is_active else None
 
 
 @router.get("/chapters", response_model=List[ChapterResponse])
@@ -38,7 +61,10 @@ async def get_practice_questions(
     chapter_id: Optional[int] = None,
     exam_category: Optional[str] = None,
     difficulty: Optional[int] = None,
+    mode: str = "chapter",
+    tag: Optional[str] = None,
     limit: int = 20,
+    current_user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(Question)
@@ -48,6 +74,27 @@ async def get_practice_questions(
         query = query.join(Chapter).where(Chapter.exam_category == exam_category)
     if difficulty:
         query = query.where(Question.difficulty == difficulty)
+    if tag:
+        query = query.where(Question.知识点.like(f"%{tag}%"))
+    if mode == "unanswered":
+        if not current_user:
+            query = query.where(Question.id == -1)
+        else:
+            answered = select(QuestionRecord.question_id).where(
+                QuestionRecord.user_id == current_user.id
+            )
+            query = query.where(Question.id.not_in(answered))
+    elif mode == "wrong":
+        if not current_user:
+            query = query.where(Question.id == -1)
+        else:
+            wrong = select(WrongQuestion.question_id).where(
+                WrongQuestion.user_id == current_user.id,
+                WrongQuestion.is_mastered == False,
+            )
+            query = query.where(Question.id.in_(wrong))
+    if mode in {"random", "tag"}:
+        query = query.order_by(func.random())
     query = query.limit(limit)
     result = await db.execute(query)
     return result.scalars().all()

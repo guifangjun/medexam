@@ -160,6 +160,7 @@ class _HomeTabState extends State<_HomeTab> {
     final task = study.todayTask;
     final plan = study.todayTaskPlan;
     final stats = study.todayStats;
+    final questionProvider = context.watch<QuestionProvider>();
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -194,6 +195,12 @@ class _HomeTabState extends State<_HomeTab> {
                               builder: (_) => const StatsScreen()))),
                   const SizedBox(height: 14),
                   _buildStatsRow(stats),
+                  const SizedBox(height: 24),
+                  _buildLearningCommandCard(task, plan, stats),
+                  if (questionProvider.recentStudyTitle != null) ...[
+                    const SizedBox(height: 14),
+                    _buildContinueCard(questionProvider),
+                  ],
                   if (task != null) ...[
                     const SizedBox(height: 24),
                     const Text('今日任务',
@@ -414,6 +421,7 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildStatsRow(dynamic stats) {
+    final minutes = ((stats?.timeSpent ?? 0) / 60).round();
     final items = [
       _StatChip(
           icon: Icons.check_circle_rounded,
@@ -428,7 +436,7 @@ class _HomeTabState extends State<_HomeTab> {
       _StatChip(
           icon: Icons.timer_rounded,
           label: '时长',
-          value: '${stats?.timeSpent ?? 0}min',
+          value: '${minutes}min',
           color: AppTheme.accent),
       _StatChip(
           icon: Icons.local_fire_department_rounded,
@@ -443,6 +451,102 @@ class _HomeTabState extends State<_HomeTab> {
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: e)))
             .toList());
+  }
+
+  Widget _buildLearningCommandCard(
+      DailyTask? task, StudyPlan? plan, dynamic stats) {
+    final target = task?.targetQuestions ?? plan?.dailyQuestions ?? 20;
+    final completed = task?.completedQuestions ?? stats?.totalQuestions ?? 0;
+    final accuracy = ((stats?.accuracyRate ?? 0) * 100).round();
+    final progress = target == 0 ? 0.0 : (completed / target).clamp(0.0, 1.0);
+    final recommendation = completed == 0
+        ? '先完成一组随机练习，快速进入状态'
+        : accuracy < 70
+            ? '正确率偏低，建议先复习错题'
+            : completed < target
+                ? '继续今日任务，补齐目标题量'
+                : '今日刷题达标，可以看一节课程巩固';
+    return GlassCard(
+      padding: const EdgeInsets.all(18),
+      tint: AppTheme.primary.withOpacity(0.08),
+      borderColor: AppTheme.primary.withOpacity(0.12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '今日学习任务',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(recommendation,
+              style: const TextStyle(color: AppTheme.textSecondary)),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(5),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: AppTheme.divider,
+              valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text('$completed/$target 题 · 今日正确率 $accuracy%',
+              style: const TextStyle(
+                  fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => widget.homeState.goToTab(1),
+              icon: const Icon(Icons.play_arrow_rounded),
+              label: const Text('一键开始今日任务'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContinueCard(QuestionProvider provider) {
+    return GlassCard(
+      onTap: () => widget.homeState.goToTab(1),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppTheme.accent.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.history_rounded, color: AppTheme.accent),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('继续学习',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.textPrimary)),
+                Text(
+                  provider.recentStudyAction ?? provider.recentStudyTitle!,
+                  style: const TextStyle(color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded, color: AppTheme.textHint),
+        ],
+      ),
+    );
   }
 
   Widget _buildTaskCard(DailyTask task, StudyPlan? plan) {

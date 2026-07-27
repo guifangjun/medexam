@@ -8,6 +8,7 @@ class CourseBase(BaseModel):
     title: str
     course_type: str = "recorded"
     exam_category: str = "执业资格"
+    chapter_id: Optional[int] = None
     teacher: str
     schedule: str
     lesson_count: int = 1
@@ -23,6 +24,7 @@ class CourseUpdate(BaseModel):
     title: Optional[str] = None
     course_type: Optional[str] = None
     exam_category: Optional[str] = None
+    chapter_id: Optional[int] = None
     teacher: Optional[str] = None
     schedule: Optional[str] = None
     lesson_count: Optional[int] = None

@@ -145,6 +145,10 @@ class ApiService {
     return _dio.get(ApiConstants.adminMe);
   }
 
+  Future<Response> getAdminDashboard() async {
+    return _dio.get(ApiConstants.adminDashboard);
+  }
+
   Future<Response> updateMe(Map<String, dynamic> data) async {
     return _dio.put(ApiConstants.me, data: data);
   }
@@ -166,6 +170,8 @@ class ApiService {
     int? chapterId,
     String? examCategory,
     int? difficulty,
+    String mode = 'chapter',
+    String? tag,
     int limit = 20,
   }) async {
     return _dio.get(ApiConstants.practice, queryParameters: {
@@ -173,6 +179,8 @@ class ApiService {
       if (examCategory != null && examCategory.isNotEmpty)
         'exam_category': examCategory,
       if (difficulty != null) 'difficulty': difficulty,
+      'mode': mode,
+      if (tag != null && tag.isNotEmpty) 'tag': tag,
       'limit': limit,
     });
   }

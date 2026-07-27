@@ -77,6 +77,11 @@ async def _ensure_sqlite_columns(conn) -> None:
     if "phone" not in user_columns:
         await conn.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR(20)"))
 
+    result = await conn.execute(text("PRAGMA table_info(courses)"))
+    course_columns = {row[1] for row in result.fetchall()}
+    if "chapter_id" not in course_columns:
+        await conn.execute(text("ALTER TABLE courses ADD COLUMN chapter_id INTEGER"))
+
 
 async def _ensure_exam_category_content() -> None:
     licensed_chapters = [

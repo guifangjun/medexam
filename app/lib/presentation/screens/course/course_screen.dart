@@ -5,6 +5,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/providers/question_provider.dart';
 import '../../../data/services/api_service.dart';
 import '../../widgets/app_glass.dart';
+import '../practice/practice_screen.dart';
 
 class CourseScreen extends StatefulWidget {
   const CourseScreen({super.key});
@@ -254,6 +255,11 @@ class _CourseCard extends StatelessWidget {
               _Meta(
                   icon: Icons.play_circle_outline_rounded,
                   text: course.lessons),
+              const SizedBox(width: 14),
+              _Meta(
+                icon: Icons.quiz_rounded,
+                text: course.chapterId == null ? '未关联题库' : '已关联题库',
+              ),
             ],
           ),
           const SizedBox(height: 14),
@@ -262,19 +268,39 @@ class _CourseCard extends StatelessWidget {
             height: 44,
             child: course.isLive
                 ? ElevatedButton.icon(
-                    onPressed: () {},
+                    onPressed: () => _startCoursePractice(context),
                     icon: const Icon(Icons.notifications_active_rounded,
                         size: 18),
-                    label: const Text('预约直播'),
+                    label: const Text('查看对应题库'),
                   )
                 : OutlinedButton.icon(
-                    onPressed: () {},
+                    onPressed: () => _startCoursePractice(context),
                     icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                    label: const Text('开始学习'),
+                    label: const Text('课后练习'),
                   ),
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _startCoursePractice(BuildContext context) async {
+    if (course.chapterId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('该课程暂未关联章节题库')),
+      );
+      return;
+    }
+    final provider = context.read<QuestionProvider>();
+    await provider.loadPracticeQuestions(
+      chapterId: course.chapterId,
+      mode: 'chapter',
+      title: '${course.title} · 课后练习',
+    );
+    if (!context.mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const PracticeScreen()),
     );
   }
 }
@@ -341,6 +367,7 @@ class _Course {
   final String lessons;
   final String typeLabel;
   final String level;
+  final int? chapterId;
   final IconData icon;
   final Color color;
   final bool isLive;
@@ -353,6 +380,7 @@ class _Course {
     required this.lessons,
     required this.typeLabel,
     required this.level,
+    required this.chapterId,
     required this.icon,
     required this.color,
     required this.isLive,
@@ -369,6 +397,7 @@ class _Course {
       lessons: isLive ? '直播课' : '${json['lesson_count'] ?? 0} 讲',
       typeLabel: isLive ? '直播' : '录播',
       level: json['exam_category'] ?? '',
+      chapterId: json['chapter_id'],
       icon: isLive ? Icons.live_tv_rounded : Icons.video_library_rounded,
       color: isLive ? AppTheme.error : AppTheme.primary,
       isLive: isLive,

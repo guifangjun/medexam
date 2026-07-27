@@ -1,45 +1,34 @@
-# MedExam AI
+# MedExam AI 医考培训系统
 
-面向卫生类考试用户的 AI 医考学习平台，覆盖卫生执业资格类考试、卫生初级/中级/高级职称考试。项目包含学员端 Flutter Web/App、FastAPI 后端，以及独立的 Web 管理后台。
+MedExam AI 是一款医考培训产品，包含学员端、独立管理后台和 FastAPI 后端。当前版本聚焦医考学习闭环：考试分类切换、题库练习、错题复习、课程学习、学习计划、AI 答疑，以及后台题库/课程/用户/数据看板运营管理。
 
 ## 功能概览
 
 ### 学员端
 
-- 多考试目标：执业资格、初级职称、中级职称、高级职称
-- 首页学习看板：今日任务、学习数据、考试目标切换
-- 刷题模块：章节刷题、题目解析、错题记录
-- 模考模块：按当前考试目标生成限时模考
-- 视频课程：直播课、录播课
-- 学习计划：创建计划后自动关联今日任务
-- 错题本：错题复习、掌握状态、复习次数
-- 数据统计：今日数据、总体学习概况、薄弱科目
-- AI 答疑：自然语言问答、题目相关追问
+- 手机号注册与登录：支持手机号 + 密码、手机号 + 验证码登录。
+- 首页学习闭环：今日学习任务、今日数据、推荐下一步、一键开始今日任务、继续学习。
+- 考试分类：执业资格、初级职称、中级职称、高级职称。
+- 专项练习：章节练习、未做题、错题复习、高频考点、随机练习。
+- 模拟考试：按当前考试分类抽取真题/模考题。
+- 课程学习：直播课、录播课，课程可关联章节题库并进入课后练习。
+- 学习中心：学习计划、今日任务、错题复习、今日统计。
+- 错题本：错题详情、答案解析、复习次数、掌握状态。
+- AI 答疑：医学考试学习问答、会话历史。
 
 ### 管理后台
 
-- 独立后台登录体系
-- 题库管理：题目列表、搜索、新增、编辑、删除
-- 课程管理：直播课/录播课新增、编辑、删除
-- 后台接口鉴权：`/api/admin/*` 需要后台 token
+- 独立后台账号体系，和学员账号/token 分离。
+- 题库管理：按考试分类/章节筛选，新增、编辑、删除题目。
+- 课程管理：新增、编辑、删除课程，绑定章节题库，控制发布状态。
+- 用户管理：用户增删改查、搜索、考试分类筛选、启用/停用。
+- 数据看板：用户总数、今日活跃、今日做题、正确率、错题复习、课程数、考试分类分布、章节练习热度。
 
 ## 技术栈
 
-### 前端
-
-- Flutter
-- Provider
-- Dio
-- fl_chart
-- flutter_secure_storage
-
-### 后端
-
-- FastAPI
-- SQLAlchemy Async
-- SQLite 本地开发默认库
-- JWT 认证
-- 可配置国产大模型接口
+- 前端：Flutter Web、Provider、Dio、flutter_secure_storage、fl_chart
+- 后端：FastAPI、SQLAlchemy Async、SQLite、JWT、Passlib
+- 本地服务：FastAPI `127.0.0.1:8000`，Flutter 静态 Web `127.0.0.1:5275`
 
 ## 项目结构
 
@@ -50,124 +39,122 @@ medexam/
 │   │   ├── core/                # 常量、主题、全局消息
 │   │   ├── data/                # models/providers/services
 │   │   └── presentation/
-│   │       ├── screens/
-│   │       │   ├── admin/       # Web 管理后台
-│   │       │   ├── auth/        # 学员端登录注册
-│   │       │   ├── course/      # 视频课程
-│   │       │   ├── exam/        # 模考
-│   │       │   ├── home/        # 首页
-│   │       │   ├── practice/    # 刷题
-│   │       │   ├── stats/       # 数据统计
-│   │       │   ├── study/       # 学习计划
-│   │       │   ├── syllabus/    # 考试大纲
-│   │       │   └── wrong/       # 错题本
-│   │       └── widgets/         # 通用液态玻璃组件
+│   │       ├── screens/         # home/practice/course/exam/study/admin 等页面
+│   │       └── widgets/         # 通用 UI 组件
 │   └── pubspec.yaml
-│
-└── backend/                     # FastAPI 后端
-    ├── app/
-    │   ├── api/                 # auth/questions/study/ai/admin
-    │   ├── core/                # 配置、数据库、初始化
-    │   ├── models/              # SQLAlchemy 模型
-    │   └── schemas/             # Pydantic schema
-    ├── requirements.txt
-    └── medexam.db               # 本地 SQLite 数据库
+├── backend/                     # FastAPI 后端
+│   ├── app/
+│   │   ├── api/                 # auth/questions/study/ai/admin
+│   │   ├── core/                # 配置、数据库、初始化、种子数据
+│   │   ├── models/              # SQLAlchemy 模型
+│   │   └── schemas/             # Pydantic schema
+│   ├── tests/                   # 后端接口流测试
+│   └── requirements.txt
+└── scripts/
+    ├── start_local.sh           # 一键启动
+    └── serve_web.py             # 本地 Flutter Web 静态服务
 ```
 
 ## 本地启动
 
-### 一键启动（推荐）
+推荐直接使用一键启动脚本：
 
 ```bash
-/Users/ahuai/Documents/medexam/scripts/start_local.sh
+cd /Users/ahuai/Documents/medexam
+./scripts/start_local.sh
 ```
 
-脚本会先清理本机 `8000` 和 `5275` 端口，再构建 Flutter Web 并用本地静态服务启动页面，方便 Chrome、Codex 内置浏览器或其它浏览器稳定访问。
+脚本会清理本机 `8000` 和 `5275` 端口，启动 FastAPI，构建 Flutter Web，并启动本地静态服务。
 
-### 1. 启动后端
-
-```bash
-cd backend
-pip install -r requirements.txt
-python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-后端默认地址：
+访问地址：
 
 ```text
-http://127.0.0.1:8000
-```
-
-健康检查：
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-### 2. 启动 Flutter Web
-
-```bash
-cd app
-flutter pub get
-flutter build web
-python3 ../scripts/serve_web.py --directory build/web --host 127.0.0.1 --port 5275
-```
-
-如果使用静态构建预览：
-
-```bash
-cd app
-flutter build web
-cd build/web
-python3 -m http.server 5275 --bind 127.0.0.1
-```
-
-### 3. 访问地址
-
-学员端：
-
-```text
-http://127.0.0.1:5275/
-```
-
-管理后台：
-
-```text
-http://127.0.0.1:5275/#/admin
+学员端：http://127.0.0.1:5275/
+管理后台：http://127.0.0.1:5275/#/admin
+后端 API：http://127.0.0.1:8000
 ```
 
 ## 默认账号
 
-### 学员端演示账号
+学员端演示账号：
 
 ```text
-用户名：demo
+手机号：13800000000
 密码：demo123
 ```
 
-### 管理后台演示账号
+管理后台演示账号：
 
 ```text
-用户名：admin
+账号：admin
 密码：admin123
 ```
 
-注意：默认演示账号仅用于本地开发和预览。正式环境应改为环境变量初始化管理员账号，或关闭默认账号创建逻辑。
+本地演示环境的短信验证码会直接返回给前端使用；接真实短信网关前不要用于生产。
 
-## API 模块
+## 常用命令
+
+后端测试：
+
+```bash
+cd /Users/ahuai/Documents/medexam/backend
+python3 -B -m unittest discover -s tests -v
+```
+
+Flutter 静态检查：
+
+```bash
+cd /Users/ahuai/Documents/medexam/app
+/Users/ahuai/development/flutter/bin/flutter analyze
+```
+
+只查看 Flutter 编译级错误：
+
+```bash
+cd /Users/ahuai/Documents/medexam/app
+/Users/ahuai/development/flutter/bin/flutter analyze 2>&1 | rg "error •"
+```
+
+格式化 Flutter 代码：
+
+```bash
+cd /Users/ahuai/Documents/medexam
+/Users/ahuai/development/flutter/bin/dart format app/lib
+```
+
+手动启动后端：
+
+```bash
+cd /Users/ahuai/Documents/medexam/backend
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+手动构建并预览前端：
+
+```bash
+cd /Users/ahuai/Documents/medexam/app
+/Users/ahuai/development/flutter/bin/flutter build web
+python3 ../scripts/serve_web.py --directory build/web --host 127.0.0.1 --port 5275
+```
+
+## 主要 API
 
 ### 学员认证
 
+- `POST /api/auth/sms-code`
 - `POST /api/auth/register`
 - `POST /api/auth/login`
+- `POST /api/auth/login/sms`
 - `GET /api/auth/me`
 
 ### 题库
 
 - `GET /api/questions/chapters`
 - `GET /api/questions/practice`
+  - 支持 `mode=chapter|unanswered|wrong|tag|random`
 - `GET /api/questions/exam`
 - `POST /api/questions/submit`
+- `POST /api/questions/exam/submit`
 
 ### 学习
 
@@ -175,31 +162,25 @@ http://127.0.0.1:5275/#/admin
 - `GET /api/study/plan`
 - `GET /api/study/today`
 - `GET /api/study/wrong`
+- `POST /api/study/wrong/{wrong_id}/review`
 - `GET /api/study/stats/today`
 - `GET /api/study/stats/overview`
-
-### AI 答疑
-
-- `POST /api/ai/chat`
-- `GET /api/ai/history`
-- `GET /api/ai/sessions`
 
 ### 管理后台
 
 - `POST /api/admin/auth/login`
 - `GET /api/admin/auth/me`
-- `GET /api/admin/questions`
-- `POST /api/admin/questions`
-- `PUT /api/admin/questions/{question_id}`
-- `DELETE /api/admin/questions/{question_id}`
-- `GET /api/admin/courses`
-- `POST /api/admin/courses`
-- `PUT /api/admin/courses/{course_id}`
-- `DELETE /api/admin/courses/{course_id}`
+- `GET /api/admin/dashboard`
+- `GET|POST /api/admin/questions`
+- `PUT|DELETE /api/admin/questions/{question_id}`
+- `GET|POST /api/admin/courses`
+- `PUT|DELETE /api/admin/courses/{course_id}`
+- `GET|POST /api/admin/users`
+- `PUT|DELETE /api/admin/users/{user_id}`
 
-## 环境配置
+## 数据与配置
 
-后端配置位于 `backend/.env`，默认使用本地 SQLite：
+后端默认使用本地 SQLite：
 
 ```env
 DATABASE_URL=sqlite+aiosqlite:///./medexam.db
@@ -209,39 +190,21 @@ AI_BASE_URL=https://api.example.com/v1
 AI_MODEL=Qwen/Qwen2.5-7B-Instruct
 ```
 
-## 常用命令
+本地数据库、备份、环境变量和构建产物不提交到 Git：
 
-格式化 Flutter 代码：
-
-```bash
-cd app
-dart format lib
-```
-
-构建 Web：
-
-```bash
-cd app
-flutter build web
-```
-
-Python 语法检查：
-
-```bash
-PYTHONPYCACHEPREFIX=/private/tmp/medexam_pycache \
-python3 -m py_compile backend/app/api/*.py backend/app/schemas/*.py
-```
-
-## 设计风格
-
-当前 UI 使用浅色液态玻璃风格，主色为深海蓝，强调简洁、清晰、适合医疗考试学习场景。学员端和登录页保持统一视觉；管理后台为独立系统，但沿用相同品牌色和组件风格。
+- `backend/medexam.db`
+- `backend/backups/`
+- `backend/.env`
+- `app/build/`
+- `app/.dart_tool/`
 
 ## 注意事项
 
-- 管理后台和学员端是两套账号体系，token 分开存储。
-- 本地默认数据库文件为 `backend/medexam.db`。
-- 当前课程管理后台已支持数据写入，但学员端课程页仍以演示课程数据为主，后续可改为读取 `/api/admin/courses` 的已发布课程。
-- `.DS_Store` 不应提交到仓库，建议加入 `.gitignore`。
+- 管理后台和学员端是两套账号体系。
+- 客户端切换考试分类后，题库和课程内容应同步切换。
+- 课程 v1 采用单章节绑定：`course.chapter_id`。
+- 后台用户管理不展示/编辑每日目标。
+- Flutter analyze 当前可能存在历史 info/warning，验收重点看是否有 `error •`。
 
 ## License
 

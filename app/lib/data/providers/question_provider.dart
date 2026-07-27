@@ -8,6 +8,11 @@ class QuestionProvider extends ChangeNotifier {
   bool _useMockData = false; // 演示模式开关
 
   String _examCategory = '执业资格';
+  String _practiceMode = 'chapter';
+  String? _practiceTitle;
+  String? _recentStudyTitle;
+  String? _recentStudyAction;
+  int? _recentChapterId;
   List<Chapter> _chapters = [];
   List<Question> _currentQuestions = [];
   int _currentIndex = 0;
@@ -26,6 +31,11 @@ class QuestionProvider extends ChangeNotifier {
   }
 
   String get examCategory => _examCategory;
+  String get practiceMode => _practiceMode;
+  String? get practiceTitle => _practiceTitle;
+  String? get recentStudyTitle => _recentStudyTitle;
+  String? get recentStudyAction => _recentStudyAction;
+  int? get recentChapterId => _recentChapterId;
   List<Chapter> get chapters => _chapters;
   List<Question> get currentQuestions => _currentQuestions;
   int get currentIndex => _currentIndex;
@@ -350,6 +360,9 @@ class QuestionProvider extends ChangeNotifier {
   Future<void> loadPracticeQuestions({
     int? chapterId,
     int? difficulty,
+    String mode = 'chapter',
+    String? tag,
+    String? title,
     int limit = 20,
   }) async {
     try {
@@ -361,6 +374,8 @@ class QuestionProvider extends ChangeNotifier {
         chapterId: chapterId,
         examCategory: _examCategory,
         difficulty: difficulty,
+        mode: mode,
+        tag: tag,
         limit: limit,
       );
       _currentQuestions =
@@ -372,6 +387,13 @@ class QuestionProvider extends ChangeNotifier {
       _currentQuestion =
           _currentQuestions.isNotEmpty ? _currentQuestions.first : null;
       _error = _currentQuestions.isEmpty ? '暂无题目' : null;
+      _practiceMode = mode;
+      _practiceTitle = title ?? _modeTitle(mode, tag: tag);
+      if (_currentQuestions.isNotEmpty) {
+        _recentStudyTitle = _practiceTitle;
+        _recentStudyAction = '继续${_practiceTitle ?? "刷题"}';
+        _recentChapterId = chapterId;
+      }
     } catch (e) {
       if (_useMockData) {
         _loadMockPracticeQuestions(chapterId: chapterId, limit: limit);
@@ -452,6 +474,21 @@ class QuestionProvider extends ChangeNotifier {
     _examAnswers.clear();
     _currentQuestion =
         _currentQuestions.isNotEmpty ? _currentQuestions.first : null;
+  }
+
+  String _modeTitle(String mode, {String? tag}) {
+    switch (mode) {
+      case 'unanswered':
+        return '未做题练习';
+      case 'wrong':
+        return '错题复习';
+      case 'tag':
+        return tag == null || tag.isEmpty ? '高频考点' : '$tag 高频考点';
+      case 'random':
+        return '随机练习';
+      default:
+        return '章节练习';
+    }
   }
 
   void _loadMockExamQuestions(int count) {

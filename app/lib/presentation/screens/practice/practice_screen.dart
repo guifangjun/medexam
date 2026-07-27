@@ -25,7 +25,9 @@ class _PracticeScreenState extends State<PracticeScreen> {
   Widget build(BuildContext context) {
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('章节刷题'),
+        title: Text(context.watch<QuestionProvider>().hasQuestions
+            ? context.watch<QuestionProvider>().practiceTitle ?? '刷题'
+            : '专项练习'),
         actions: [
           if (context.watch<QuestionProvider>().hasQuestions)
             IconButton(
@@ -66,82 +68,155 @@ class _PracticeScreenState extends State<PracticeScreen> {
       );
     }
 
-    return ListView.builder(
+    return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-      itemCount: chapters.length,
-      itemBuilder: (context, index) {
-        final ch = chapters[index];
-        final colors = [
-          AppTheme.primary,
-          AppTheme.accent,
-          const Color(0xFF7C4DFF),
-          AppTheme.success,
-          AppTheme.error,
-          AppTheme.primaryLight,
-          Colors.orange,
-        ];
-        final c = colors[index % colors.length];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: GlassCard(
-            onTap: () async {
-              await provider.loadPracticeQuestions(chapterId: ch.id);
-              if (!context.mounted) return;
-              final updated = context.read<QuestionProvider>();
-              if (!updated.hasQuestions && updated.error != null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('${ch.name}：${updated.error}')),
+      children: [
+        _buildModeGrid(context, provider),
+        const SizedBox(height: 18),
+        const Text(
+          '章节练习',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: AppTheme.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 12),
+        ...List.generate(chapters.length, (index) {
+          final ch = chapters[index];
+          final colors = [
+            AppTheme.primary,
+            AppTheme.accent,
+            const Color(0xFF7C4DFF),
+            AppTheme.success,
+            AppTheme.error,
+            AppTheme.primaryLight,
+            Colors.orange,
+          ];
+          final c = colors[index % colors.length];
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: GlassCard(
+              onTap: () async {
+                await provider.loadPracticeQuestions(
+                  chapterId: ch.id,
+                  mode: 'chapter',
+                  title: ch.name,
                 );
-              }
-            },
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: c.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Center(
-                    child: Text(
-                      '${index + 1}',
-                      style: TextStyle(
-                        color: c,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 18,
+                if (!context.mounted) return;
+                final updated = context.read<QuestionProvider>();
+                if (!updated.hasQuestions && updated.error != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('${ch.name}：${updated.error}')),
+                  );
+                }
+              },
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: c.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${index + 1}',
+                        style: TextStyle(
+                          color: c,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 18,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(ch.name,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                              color: AppTheme.textPrimary)),
-                      if (ch.subjects.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(ch.subjects.join('、'),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(ch.name,
                             style: const TextStyle(
-                                fontSize: 12, color: AppTheme.textSecondary)),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 15,
+                                color: AppTheme.textPrimary)),
+                        if (ch.subjects.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(ch.subjects.join('、'),
+                              style: const TextStyle(
+                                  fontSize: 12, color: AppTheme.textSecondary)),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                const Icon(Icons.chevron_right,
-                    color: AppTheme.textHint, size: 20),
-              ],
+                  const Icon(Icons.chevron_right,
+                      color: AppTheme.textHint, size: 20),
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        }),
+      ],
     );
+  }
+
+  Widget _buildModeGrid(BuildContext context, QuestionProvider provider) {
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 2.35,
+      children: [
+        _ModeCard(
+          icon: Icons.playlist_add_check_rounded,
+          title: '未做题',
+          subtitle: '优先补空白',
+          color: AppTheme.accent,
+          onTap: () => _startMode(context, provider, mode: 'unanswered'),
+        ),
+        _ModeCard(
+          icon: Icons.assignment_late_rounded,
+          title: '错题复习',
+          subtitle: '只练未掌握',
+          color: AppTheme.error,
+          onTap: () => _startMode(context, provider, mode: 'wrong'),
+        ),
+        _ModeCard(
+          icon: Icons.local_fire_department_rounded,
+          title: '高频考点',
+          subtitle: '按标签抽题',
+          color: Colors.orange,
+          onTap: () => _startMode(context, provider, mode: 'tag', tag: '内科学'),
+        ),
+        _ModeCard(
+          icon: Icons.shuffle_rounded,
+          title: '随机练习',
+          subtitle: '快速热身',
+          color: AppTheme.success,
+          onTap: () => _startMode(context, provider, mode: 'random'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _startMode(
+    BuildContext context,
+    QuestionProvider provider, {
+    required String mode,
+    String? tag,
+  }) async {
+    await provider.loadPracticeQuestions(mode: mode, tag: tag, limit: 20);
+    if (!context.mounted) return;
+    final updated = context.read<QuestionProvider>();
+    if (!updated.hasQuestions && updated.error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(updated.error!)),
+      );
+    }
   }
 
   Widget _buildQuestionView(BuildContext context, QuestionProvider provider) {
@@ -357,6 +432,68 @@ class _Tag extends StatelessWidget {
       child: Text(label,
           style: TextStyle(
               fontSize: 12, fontWeight: FontWeight.w500, color: color)),
+    );
+  }
+}
+
+class _ModeCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ModeCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(14),
+      tint: Colors.white.withOpacity(0.78),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

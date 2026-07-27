@@ -27,6 +27,7 @@ class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _questions = [];
   List<Map<String, dynamic>> _courses = [];
   List<Map<String, dynamic>> _users = [];
+  Map<String, dynamic>? _dashboard;
   String? _selectedUserExamCategory;
   bool? _selectedUserActive;
 
@@ -89,6 +90,7 @@ class _AdminScreenState extends State<AdminScreen> {
       );
       final chapterRes = await _api.getChapters();
       final courseRes = await _api.getAdminCourses();
+      final dashboardRes = await _api.getAdminDashboard();
       final userRes = await _api.getAdminUsers(
         keyword: _userKeywordCtl.text.trim(),
         examCategory: _selectedUserExamCategory,
@@ -100,6 +102,7 @@ class _AdminScreenState extends State<AdminScreen> {
       _questions = List<Map<String, dynamic>>.from(questionRes.data);
       _courses = List<Map<String, dynamic>>.from(courseRes.data);
       _users = List<Map<String, dynamic>>.from(userRes.data);
+      _dashboard = Map<String, dynamic>.from(dashboardRes.data);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -176,10 +179,11 @@ class _AdminScreenState extends State<AdminScreen> {
                                 else if (_tab == 1)
                                   _CourseManager(
                                     courses: _courses,
+                                    chapters: _chapters,
                                     onSave: _saveCourse,
                                     onDelete: _deleteCourse,
                                   )
-                                else
+                                else if (_tab == 2)
                                   _UserManager(
                                     users: _users,
                                     keywordCtl: _userKeywordCtl,
@@ -199,6 +203,10 @@ class _AdminScreenState extends State<AdminScreen> {
                                     onSearch: _loadAll,
                                     onSave: _saveUser,
                                     onDelete: _deleteUser,
+                                  )
+                                else
+                                  _DashboardManager(
+                                    data: _dashboard ?? {},
                                   ),
                               ],
                             ),
@@ -488,6 +496,13 @@ class _AdminSidebar extends StatelessWidget {
               label: '用户管理',
               selected: selected == 2,
               onTap: () => onSelected(2),
+            ),
+            const SizedBox(height: 8),
+            _NavItem(
+              icon: Icons.dashboard_rounded,
+              label: '数据看板',
+              selected: selected == 3,
+              onTap: () => onSelected(3),
             ),
             const Spacer(),
             OutlinedButton.icon(
@@ -1063,11 +1078,13 @@ class _QuestionManager extends StatelessWidget {
 
 class _CourseManager extends StatelessWidget {
   final List<Map<String, dynamic>> courses;
+  final List<Chapter> chapters;
   final Future<void> Function(Map<String, dynamic> data, {int? id}) onSave;
   final Future<void> Function(int id) onDelete;
 
   const _CourseManager({
     required this.courses,
+    required this.chapters,
     required this.onSave,
     required this.onDelete,
   });
@@ -1095,8 +1112,8 @@ class _CourseManager extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _DataHeader(
-            columns: const ['ID', '课程名称', '类型', '考试', '讲师', '课时', '状态', '操作'],
-            flexes: const [1, 4, 1, 1, 2, 1, 1, 2],
+            columns: const ['ID', '课程名称', '类型', '考试', '关联章节', '讲师', '状态', '操作'],
+            flexes: const [1, 4, 1, 1, 2, 2, 1, 2],
           ),
           ...courses.map(
             (course) => _DataRowCard(
@@ -1105,11 +1122,11 @@ class _CourseManager extends StatelessWidget {
                 course['title'] ?? '',
                 course['course_type'] == 'live' ? '直播' : '录播',
                 course['exam_category'] ?? '',
+                _chapterName(course['chapter_id']),
                 course['teacher'] ?? '',
-                '${course['lesson_count'] ?? 0}',
                 course['is_published'] == true ? '已发布' : '未发布',
               ],
-              flexes: const [1, 4, 1, 1, 2, 1, 1],
+              flexes: const [1, 4, 1, 1, 2, 2, 1],
               actions: [
                 IconButton(
                   tooltip: '编辑',
@@ -1139,6 +1156,7 @@ class _CourseManager extends StatelessWidget {
     final descCtl = TextEditingController(text: course?['description'] ?? '');
     var courseType = course?['course_type'] ?? 'recorded';
     var examCategory = course?['exam_category'] ?? '执业资格';
+    int? chapterId = course?['chapter_id'];
     var isPublished = course?['is_published'] ?? true;
 
     showDialog(
@@ -1180,11 +1198,35 @@ class _CourseManager extends StatelessWidget {
                               .map((item) => DropdownMenuItem(
                                   value: item, child: Text(item)))
                               .toList(),
-                          onChanged: (value) =>
-                              setDialogState(() => examCategory = value!),
+                          onChanged: (value) => setDialogState(() {
+                            examCategory = value!;
+                            chapterId = null;
+                          }),
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int?>(
+                    value: _chaptersForCategory(examCategory)
+                            .any((chapter) => chapter.id == chapterId)
+                        ? chapterId
+                        : null,
+                    decoration: const InputDecoration(labelText: '关联章节题库'),
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text('暂不关联'),
+                      ),
+                      ..._chaptersForCategory(examCategory).map(
+                        (chapter) => DropdownMenuItem<int?>(
+                          value: chapter.id,
+                          child: Text(chapter.name),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => chapterId = value),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -1235,6 +1277,7 @@ class _CourseManager extends StatelessWidget {
                   'title': titleCtl.text.trim(),
                   'course_type': courseType,
                   'exam_category': examCategory,
+                  'chapter_id': chapterId,
                   'teacher': teacherCtl.text.trim(),
                   'schedule': scheduleCtl.text.trim(),
                   'lesson_count': int.tryParse(lessonCtl.text.trim()) ?? 1,
@@ -1250,6 +1293,20 @@ class _CourseManager extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  List<Chapter> _chaptersForCategory(String category) {
+    return chapters
+        .where((chapter) => chapter.examCategory == category)
+        .toList();
+  }
+
+  String _chapterName(dynamic id) {
+    if (id == null) return '未关联';
+    for (final chapter in chapters) {
+      if (chapter.id == id) return chapter.name;
+    }
+    return '未关联';
   }
 }
 
@@ -1556,6 +1613,111 @@ class _UserManager extends StatelessWidget {
     if (ok == true) {
       await onDelete(user['id']);
     }
+  }
+}
+
+class _DashboardManager extends StatelessWidget {
+  final Map<String, dynamic> data;
+
+  const _DashboardManager({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final categories =
+        List<Map<String, dynamic>>.from(data['user_categories'] ?? const []);
+    final chapters =
+        List<Map<String, dynamic>>.from(data['chapter_activity'] ?? const []);
+    final accuracy = ((data['today_accuracy'] ?? 0) * 100).round();
+    return GlassCard(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '运营数据看板',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              _MetricCard(
+                  label: '用户总数',
+                  value: '${data['user_count'] ?? 0}',
+                  color: AppTheme.primary),
+              const SizedBox(width: 12),
+              _MetricCard(
+                  label: '今日活跃',
+                  value: '${data['today_active_users'] ?? 0}',
+                  color: AppTheme.accent),
+              const SizedBox(width: 12),
+              _MetricCard(
+                  label: '今日做题',
+                  value: '${data['today_questions'] ?? 0}',
+                  color: AppTheme.success),
+              const SizedBox(width: 12),
+              _MetricCard(
+                  label: '今日正确率', value: '$accuracy%', color: AppTheme.error),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _MetricCard(
+                  label: '错题复习',
+                  value: '${data['wrong_review_count'] ?? 0}',
+                  color: Colors.orange),
+              const SizedBox(width: 12),
+              _MetricCard(
+                  label: '课程数量',
+                  value: '${data['course_count'] ?? 0}',
+                  color: AppTheme.primaryLight),
+            ],
+          ),
+          const SizedBox(height: 22),
+          const Text('考试分类用户分布',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 10),
+          if (categories.isEmpty)
+            const Text('暂无用户分布数据',
+                style: TextStyle(color: AppTheme.textSecondary))
+          else
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: categories
+                  .map((item) => Chip(
+                        label: Text('${item['name']}：${item['count']} 人'),
+                      ))
+                  .toList(),
+            ),
+          const SizedBox(height: 22),
+          const Text('章节题量 / 练习热度',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 10),
+          if (chapters.isEmpty)
+            const Text('暂无章节数据',
+                style: TextStyle(color: AppTheme.textSecondary))
+          else ...[
+            const _DataHeader(
+              columns: ['章节', '考试类别', '题量', '练习次数'],
+              flexes: [3, 2, 1, 1],
+            ),
+            ...chapters.map(
+              (row) => _DataRowCard(
+                cells: [
+                  '${row['name'] ?? '-'}',
+                  '${row['exam_category'] ?? '-'}',
+                  '${row['question_count'] ?? 0}',
+                  '${row['practice_count'] ?? 0}',
+                ],
+                flexes: const [3, 2, 1, 1],
+                actions: const [],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
 

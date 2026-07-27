@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -11,6 +11,7 @@ class Course(Base):
     title = Column(String(160), nullable=False)
     course_type = Column(String(20), nullable=False, default="recorded")
     exam_category = Column(String(50), nullable=False, default="执业资格")
+    chapter_id = Column(Integer, ForeignKey("chapters.id"), nullable=True)
     teacher = Column(String(100), nullable=False)
     schedule = Column(String(100), nullable=False)
     lesson_count = Column(Integer, default=1)

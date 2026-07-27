@@ -1,8 +1,57 @@
-node_modules/
-.dart_tool/
-.flutter-plugins*
-.idea/
-*.lock
-pubspec.lock
-.env
+# macOS / IDE
 .DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+
+# Logs / runtime
+*.log
+*.pid
+*.tmp
+tmp/
+
+# Python / FastAPI
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+ENV/
+
+# Local SQLite data
+*.db
+*.sqlite
+*.sqlite3
+backend/medexam.db
+backend/backups/
+
+# Dart / Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+pubspec.lock
+build/
+app/build/
+app/.dart_tool/
+app/coverage/
+
+# Node / web tooling
+node_modules/
+dist/
+
+# Generated / cache
+coverage/
+*.map.json
+app.*.symbols

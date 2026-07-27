@@ -1,10 +1,11 @@
 from typing import List, Optional
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import create_access_token, get_password_hash, verify_password
@@ -12,7 +13,8 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.admin_user import AdminUser
 from app.models.course import Course
-from app.models.question import Chapter, Question
+from app.models.question import Chapter, Question, QuestionRecord
+from app.models.study import StudyStats, WrongQuestion
 from app.models.user import User
 from app.schemas.admin_user import AdminUserResponse
 from app.schemas.course import CourseCreate, CourseResponse, CourseUpdate
@@ -109,6 +111,70 @@ async def admin_login(
 @router.get("/auth/me", response_model=AdminUserResponse)
 async def admin_me(current_admin: AdminUser = Depends(get_current_admin)):
     return current_admin
+
+
+@router.get("/dashboard")
+async def dashboard(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    today = datetime.now().strftime("%Y-%m-%d")
+    user_count = await db.scalar(select(func.count()).select_from(User)) or 0
+    course_count = await db.scalar(select(func.count()).select_from(Course)) or 0
+    today_stats = await db.execute(
+        select(
+            func.count(StudyStats.user_id.distinct()).label("active_users"),
+            func.sum(StudyStats.total_questions).label("questions"),
+            func.sum(StudyStats.correct_count).label("correct"),
+        ).where(StudyStats.date == today)
+    )
+    stats = today_stats.one()
+    today_questions = stats.questions or 0
+    today_correct = stats.correct or 0
+    wrong_reviews = await db.scalar(
+        select(func.sum(WrongQuestion.review_count)).select_from(WrongQuestion)
+    ) or 0
+
+    categories = await db.execute(
+        select(User.target_exam, func.count(User.id))
+        .group_by(User.target_exam)
+        .order_by(func.count(User.id).desc())
+    )
+    chapter_rows = await db.execute(
+        select(
+            Chapter.id,
+            Chapter.name,
+            Chapter.exam_category,
+            func.count(Question.id).label("question_count"),
+            func.count(QuestionRecord.id).label("practice_count"),
+        )
+        .outerjoin(Question, Question.chapter_id == Chapter.id)
+        .outerjoin(QuestionRecord, QuestionRecord.question_id == Question.id)
+        .group_by(Chapter.id)
+        .order_by(func.count(QuestionRecord.id).desc(), Chapter.order)
+        .limit(20)
+    )
+    return {
+        "user_count": user_count,
+        "today_active_users": stats.active_users or 0,
+        "today_questions": today_questions,
+        "today_accuracy": today_correct / today_questions if today_questions else 0.0,
+        "wrong_review_count": wrong_reviews,
+        "course_count": course_count,
+        "user_categories": [
+            {"name": name or "未设置", "count": count} for name, count in categories.all()
+        ],
+        "chapter_activity": [
+            {
+                "chapter_id": row.id,
+                "name": row.name,
+                "exam_category": row.exam_category,
+                "question_count": row.question_count,
+                "practice_count": row.practice_count,
+            }
+            for row in chapter_rows.all()
+        ],
+    }
 
 
 @router.get("/users", response_model=List[UserResponse])
