@@ -1,17 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timedelta
 
 from app.core.database import get_db
 from app.models.user import User
 from app.models.study import StudyPlan, DailyTask, StudyStats, WrongQuestion
-from app.models.question import Question, QuestionRecord
+from app.models.question import Question, QuestionRecord, Chapter
 from app.schemas.study import (
     StudyPlanCreate, StudyPlanResponse,
     DailyTaskResponse, WrongQuestionResponse,
-    StudyStatsResponse, StatsOverview, WrongReasonUpdate
+    StudyStatsResponse, StatsOverview, WrongReasonUpdate,
+    StudyPrescriptionResponse, WeakAreaResponse,
 )
 from app.api.deps import get_current_user
 
@@ -269,6 +270,175 @@ async def get_today_stats(
             wrong_count=0, accuracy_rate=0.0, time_spent=0, ai_questions=0
         )
     return stats
+
+
+@router.get("/prescription", response_model=StudyPrescriptionResponse)
+async def get_study_prescription(
+    exam_category: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """根据今日数据、错题和章节表现生成首页学习建议"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    category = exam_category or current_user.target_exam or "执业资格"
+
+    task_result = await db.execute(
+        select(DailyTask).where(
+            DailyTask.user_id == current_user.id,
+            DailyTask.date == today
+        )
+    )
+    task = task_result.scalar_one_or_none()
+
+    stats_result = await db.execute(
+        select(StudyStats).where(
+            StudyStats.user_id == current_user.id,
+            StudyStats.date == today
+        )
+    )
+    stats = stats_result.scalar_one_or_none()
+
+    target_questions = (
+        task.target_questions
+        if task
+        else current_user.daily_goal or 20
+    )
+    completed_questions = stats.total_questions if stats else (task.completed_questions if task else 0)
+    accuracy_rate = stats.accuracy_rate if stats else 0.0
+    time_spent = stats.time_spent if stats else 0
+
+    chapter_result = await db.execute(
+        select(Chapter)
+        .where(Chapter.exam_category == category)
+        .order_by(Chapter.order)
+    )
+    chapters = chapter_result.scalars().all()
+    chapter_by_id = {chapter.id: chapter for chapter in chapters}
+
+    record_result = await db.execute(
+        select(QuestionRecord, Question)
+        .join(Question, QuestionRecord.question_id == Question.id)
+        .join(Chapter, Question.chapter_id == Chapter.id)
+        .where(
+            QuestionRecord.user_id == current_user.id,
+            Chapter.exam_category == category,
+        )
+    )
+    chapter_stats = {}
+    for record, question in record_result.all():
+        item = chapter_stats.setdefault(
+            question.chapter_id,
+            {"practice_count": 0, "correct_count": 0, "wrong_count": 0},
+        )
+        item["practice_count"] += 1
+        if record.is_correct:
+            item["correct_count"] += 1
+        else:
+            item["wrong_count"] += 1
+
+    weak_areas = []
+    for chapter_id, item in chapter_stats.items():
+        chapter = chapter_by_id.get(chapter_id)
+        if not chapter:
+            continue
+        practice_count = item["practice_count"]
+        accuracy = item["correct_count"] / practice_count if practice_count else 0.0
+        if accuracy < 0.7:
+            status = "薄弱"
+        elif accuracy < 0.85:
+            status = "一般"
+        else:
+            status = "稳固"
+        weak_areas.append(
+            WeakAreaResponse(
+                chapter_id=chapter.id,
+                chapter_name=chapter.name,
+                exam_category=chapter.exam_category,
+                practice_count=practice_count,
+                wrong_count=item["wrong_count"],
+                accuracy_rate=accuracy,
+                status=status,
+            )
+        )
+
+    weak_areas.sort(
+        key=lambda item: (
+            item.accuracy_rate,
+            -item.wrong_count,
+            -item.practice_count,
+        )
+    )
+    weak_areas = weak_areas[:5]
+
+    if not weak_areas and chapters:
+        question_count_result = await db.execute(
+            select(Question.chapter_id, func.count(Question.id))
+            .join(Chapter, Question.chapter_id == Chapter.id)
+            .where(Chapter.exam_category == category)
+            .group_by(Question.chapter_id)
+        )
+        counts = {chapter_id: count for chapter_id, count in question_count_result.all()}
+        for chapter in chapters[:5]:
+            if counts.get(chapter.id, 0) <= 0:
+                continue
+            weak_areas.append(
+                WeakAreaResponse(
+                    chapter_id=chapter.id,
+                    chapter_name=chapter.name,
+                    exam_category=chapter.exam_category,
+                    practice_count=0,
+                    wrong_count=0,
+                    accuracy_rate=0.0,
+                    status="待开始",
+                )
+            )
+
+    pending_wrong_result = await db.execute(
+        select(func.count(WrongQuestion.id)).where(
+            WrongQuestion.user_id == current_user.id,
+            WrongQuestion.is_mastered == False,
+        )
+    )
+    pending_wrong_count = pending_wrong_result.scalar() or 0
+
+    recommended_chapter_id = None
+    recommended_tag = None
+    if completed_questions == 0:
+        recommendation_title = "先完成一组随机练习"
+        recommendation_reason = f"今天还没有做题，先用 {category} 随机题快速进入状态。"
+        recommended_mode = "random"
+    elif pending_wrong_count > 0 and accuracy_rate < 0.75:
+        recommendation_title = "优先复习错题"
+        recommendation_reason = f"当前还有 {pending_wrong_count} 道错题待巩固，先把失分点补回来。"
+        recommended_mode = "wrong"
+    elif weak_areas:
+        top = weak_areas[0]
+        recommendation_title = f"补强「{top.chapter_name}」"
+        recommendation_reason = f"该章节正确率 {round(top.accuracy_rate * 100)}%，建议做 20 题专项练习。"
+        recommended_mode = "chapter"
+        recommended_chapter_id = top.chapter_id
+    elif completed_questions < target_questions:
+        recommendation_title = "继续今日任务"
+        recommendation_reason = "距离今日目标还差一点，优先完成未做题。"
+        recommended_mode = "unanswered"
+    else:
+        recommendation_title = "今日达标，随机保持手感"
+        recommendation_reason = "今天的题量已达标，可以用少量随机题保持熟练度。"
+        recommended_mode = "random"
+
+    return StudyPrescriptionResponse(
+        date=today,
+        target_questions=target_questions,
+        completed_questions=completed_questions,
+        accuracy_rate=accuracy_rate,
+        time_spent=time_spent,
+        recommendation_title=recommendation_title,
+        recommendation_reason=recommendation_reason,
+        recommended_mode=recommended_mode,
+        recommended_chapter_id=recommended_chapter_id,
+        recommended_tag=recommended_tag,
+        weak_areas=weak_areas,
+    )
 
 
 @router.get("/stats/overview", response_model=StatsOverview)

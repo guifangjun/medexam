@@ -10,6 +10,7 @@ class StudyProvider extends ChangeNotifier {
   List<WrongQuestion> _wrongQuestions = [];
   StudyStats? _todayStats;
   StatsOverview? _overview;
+  StudyPrescription? _prescription;
   bool _isLoading = false;
   String? _error;
 
@@ -34,6 +35,7 @@ class StudyProvider extends ChangeNotifier {
   List<WrongQuestion> get wrongQuestions => _wrongQuestions;
   StudyStats? get todayStats => _todayStats;
   StatsOverview? get overview => _overview;
+  StudyPrescription? get prescription => _prescription;
   bool get isLoading => _isLoading;
   String? get error => _error;
 
@@ -152,6 +154,16 @@ class StudyProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       // 静默失败
+    }
+  }
+
+  Future<void> loadPrescription({String? examCategory}) async {
+    try {
+      final res = await _api.getStudyPrescription(examCategory: examCategory);
+      _prescription = StudyPrescription.fromJson(res.data);
+      notifyListeners();
+    } catch (e) {
+      // 首页学习处方属于增强能力，失败时不影响基础学习入口。
     }
   }
 

@@ -72,6 +72,30 @@ class StudyStatsResponse(BaseModel):
     ai_questions: int
 
 
+class WeakAreaResponse(BaseModel):
+    chapter_id: int
+    chapter_name: str
+    exam_category: str
+    practice_count: int
+    wrong_count: int
+    accuracy_rate: float
+    status: str
+
+
+class StudyPrescriptionResponse(BaseModel):
+    date: str
+    target_questions: int
+    completed_questions: int
+    accuracy_rate: float
+    time_spent: int
+    recommendation_title: str
+    recommendation_reason: str
+    recommended_mode: str
+    recommended_chapter_id: Optional[int] = None
+    recommended_tag: Optional[str] = None
+    weak_areas: List[WeakAreaResponse] = []
+
+
 class StatsOverview(BaseModel):
     total_questions: int
     total_correct: int

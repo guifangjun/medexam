@@ -19,6 +19,7 @@ class QuestionProvider extends ChangeNotifier {
   Question? _currentQuestion;
   SubmitResult? _lastResult;
   ExamResult? _examResult;
+  List<ExamAttemptSummary> _examAttempts = [];
   final Map<int, String> _examAnswers = {};
   bool _isLoading = false;
   String? _error;
@@ -42,6 +43,7 @@ class QuestionProvider extends ChangeNotifier {
   Question? get currentQuestion => _currentQuestion;
   SubmitResult? get lastResult => _lastResult;
   ExamResult? get examResult => _examResult;
+  List<ExamAttemptSummary> get examAttempts => _examAttempts;
   Map<int, String> get examAnswers => Map.unmodifiable(_examAnswers);
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -533,10 +535,45 @@ class QuestionProvider extends ChangeNotifier {
             .toList(),
       });
       _examResult = ExamResult.fromJson(res.data);
+      await loadExamAttempts();
       notifyListeners();
       return _examResult;
     } catch (e) {
       _error = '交卷失败，请确认登录状态后重试';
+      notifyListeners();
+      return null;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadExamAttempts({int skip = 0, int limit = 20}) async {
+    try {
+      final res = await _api.getExamAttempts(skip: skip, limit: limit);
+      _examAttempts = (res.data as List)
+          .map((item) => ExamAttemptSummary.fromJson(item))
+          .toList();
+      notifyListeners();
+    } catch (e) {
+      // 历史记录加载失败不影响开始模考。
+    }
+  }
+
+  Future<ExamResult?> loadExamAttempt(int attemptId) async {
+    try {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+      final res = await _api.getExamAttempt(attemptId);
+      _examResult = ExamResult.fromJson(res.data);
+      _currentQuestions = [];
+      _currentQuestion = null;
+      _examAnswers.clear();
+      notifyListeners();
+      return _examResult;
+    } catch (e) {
+      _error = '加载模考报告失败';
       notifyListeners();
       return null;
     } finally {

@@ -12,6 +12,7 @@ class ApiConstants {
   static const String chapters = '$questions/chapters';
   static const String practice = '$questions/practice';
   static const String exam = '$questions/exam';
+  static const String examAttempts = '$questions/exam/attempts';
   static const String submit = '$questions/submit';
   static const String examSubmit = '$questions/exam/submit';
 
@@ -26,6 +27,7 @@ class ApiConstants {
   static const String wrong = '$study/wrong';
   static const String statsToday = '$study/stats/today';
   static const String statsOverview = '$study/stats/overview';
+  static const String studyPrescription = '$study/prescription';
 
   static const String admin = '/api/admin';
   static const String adminLogin = '$admin/auth/login';

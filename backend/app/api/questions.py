@@ -8,11 +8,12 @@ from jose import JWTError, jwt
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
-from app.models.question import Question, QuestionRecord, Chapter
+from app.models.question import Question, QuestionRecord, Chapter, ExamAttempt
 from app.models.study import DailyTask, StudyStats, WrongQuestion
 from app.schemas.question import (
     QuestionResponse, QuestionSubmit, QuestionSubmitResponse,
-    ChapterResponse, ExamSubmit, ExamSubmitResponse, ExamQuestionResult
+    ChapterResponse, ExamSubmit, ExamSubmitResponse, ExamQuestionResult,
+    ExamAttemptSummary,
 )
 from app.api.deps import get_current_user
 
@@ -157,8 +158,14 @@ async def submit_exam(
     if len(question_ids) != len(set(question_ids)):
         raise HTTPException(status_code=400, detail="模考答案包含重复题目")
 
-    result = await db.execute(select(Question).where(Question.id.in_(question_ids)))
-    questions = {question.id: question for question in result.scalars().all()}
+    result = await db.execute(
+        select(Question, Chapter)
+        .join(Chapter, Question.chapter_id == Chapter.id)
+        .where(Question.id.in_(question_ids))
+    )
+    rows = result.all()
+    questions = {question.id: question for question, _ in rows}
+    chapters = {question.id: chapter for question, chapter in rows}
     if len(questions) != len(question_ids):
         raise HTTPException(status_code=404, detail="部分题目不存在")
 
@@ -203,7 +210,9 @@ async def submit_exam(
     total = len(results)
     wrong_count = total - correct_count
     accuracy_rate = correct_count / total if total else 0
-    return ExamSubmitResponse(
+    first_chapter = chapters.get(question_ids[0])
+    exam_category = first_chapter.exam_category if first_chapter else current_user.target_exam
+    report = ExamSubmitResponse(
         total_questions=total,
         answered_count=answered_count,
         unanswered_count=total - answered_count,
@@ -215,6 +224,65 @@ async def submit_exam(
         wrong_questions=[item for item in results if not item.is_correct],
         results=results,
     )
+    attempt = ExamAttempt(
+        user_id=current_user.id,
+        exam_category=exam_category,
+        total_questions=report.total_questions,
+        answered_count=report.answered_count,
+        unanswered_count=report.unanswered_count,
+        correct_count=report.correct_count,
+        wrong_count=report.wrong_count,
+        score=report.score,
+        accuracy_rate=report.accuracy_rate,
+        time_spent=report.time_spent,
+        report=report.model_dump(mode="json"),
+    )
+    db.add(attempt)
+    await db.commit()
+    await db.refresh(attempt)
+    report.id = attempt.id
+    report.exam_category = attempt.exam_category
+    report.created_at = attempt.created_at
+    return report
+
+
+@router.get("/exam/attempts", response_model=List[ExamAttemptSummary])
+async def list_exam_attempts(
+    skip: int = 0,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ExamAttempt)
+        .where(ExamAttempt.user_id == current_user.id)
+        .order_by(ExamAttempt.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    return result.scalars().all()
+
+
+@router.get("/exam/attempts/{attempt_id}", response_model=ExamSubmitResponse)
+async def get_exam_attempt(
+    attempt_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ExamAttempt).where(
+            ExamAttempt.id == attempt_id,
+            ExamAttempt.user_id == current_user.id,
+        )
+    )
+    attempt = result.scalar_one_or_none()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="模考记录不存在")
+    report = ExamSubmitResponse(**(attempt.report or {}))
+    report.id = attempt.id
+    report.exam_category = attempt.exam_category
+    report.created_at = attempt.created_at
+    return report
 
 
 async def _record_answer(

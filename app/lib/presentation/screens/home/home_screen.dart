@@ -121,9 +121,13 @@ class _HomeTabState extends State<_HomeTab> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      final examCategory = context.read<QuestionProvider>().examCategory;
       context.read<StudyProvider>().loadStudyPlans();
       context.read<StudyProvider>().loadTodayTask();
       context.read<StudyProvider>().loadTodayStats();
+      context
+          .read<StudyProvider>()
+          .loadPrescription(examCategory: examCategory);
     });
   }
 
@@ -160,6 +164,7 @@ class _HomeTabState extends State<_HomeTab> {
     final task = study.todayTask;
     final plan = study.todayTaskPlan;
     final stats = study.todayStats;
+    final prescription = study.prescription;
     final questionProvider = context.watch<QuestionProvider>();
 
     return RefreshIndicator(
@@ -167,6 +172,7 @@ class _HomeTabState extends State<_HomeTab> {
         await study.loadStudyPlans();
         await study.loadTodayTask();
         await study.loadTodayStats();
+        await study.loadPrescription(examCategory: examCategory);
       },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -196,11 +202,13 @@ class _HomeTabState extends State<_HomeTab> {
                   const SizedBox(height: 14),
                   _buildStatsRow(stats),
                   const SizedBox(height: 24),
-                  _buildLearningCommandCard(task, plan, stats),
+                  _buildLearningCommandCard(task, plan, stats, prescription),
                   if (questionProvider.recentStudyTitle != null) ...[
                     const SizedBox(height: 14),
                     _buildContinueCard(questionProvider),
                   ],
+                  const SizedBox(height: 24),
+                  _buildWeakAreaMap(prescription),
                   if (task != null) ...[
                     const SizedBox(height: 24),
                     const Text('今日任务',
@@ -453,19 +461,29 @@ class _HomeTabState extends State<_HomeTab> {
             .toList());
   }
 
-  Widget _buildLearningCommandCard(
-      DailyTask? task, StudyPlan? plan, dynamic stats) {
-    final target = task?.targetQuestions ?? plan?.dailyQuestions ?? 20;
-    final completed = task?.completedQuestions ?? stats?.totalQuestions ?? 0;
-    final accuracy = ((stats?.accuracyRate ?? 0) * 100).round();
+  Widget _buildLearningCommandCard(DailyTask? task, StudyPlan? plan,
+      dynamic stats, StudyPrescription? prescription) {
+    final target = prescription?.targetQuestions ??
+        task?.targetQuestions ??
+        plan?.dailyQuestions ??
+        20;
+    final completed = prescription?.completedQuestions ??
+        task?.completedQuestions ??
+        stats?.totalQuestions ??
+        0;
+    final accuracy =
+        ((prescription?.accuracyRate ?? stats?.accuracyRate ?? 0) * 100)
+            .round();
     final progress = target == 0 ? 0.0 : (completed / target).clamp(0.0, 1.0);
-    final recommendation = completed == 0
-        ? '先完成一组随机练习，快速进入状态'
-        : accuracy < 70
-            ? '正确率偏低，建议先复习错题'
-            : completed < target
-                ? '继续今日任务，补齐目标题量'
-                : '今日刷题达标，可以看一节课程巩固';
+    final title = prescription?.recommendationTitle ?? '开始今日学习';
+    final recommendation = prescription?.recommendationReason ??
+        (completed == 0
+            ? '先完成一组随机练习，快速进入状态'
+            : accuracy < 70
+                ? '正确率偏低，建议先复习错题'
+                : completed < target
+                    ? '继续今日任务，补齐目标题量'
+                    : '今日刷题达标，可以看一节课程巩固');
     return GlassCard(
       padding: const EdgeInsets.all(18),
       tint: AppTheme.primary.withOpacity(0.08),
@@ -473,8 +491,8 @@ class _HomeTabState extends State<_HomeTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '今日学习任务',
+          Text(
+            title,
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
@@ -502,7 +520,7 @@ class _HomeTabState extends State<_HomeTab> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () => widget.homeState.goToTab(1),
+              onPressed: () => _startPrescription(prescription),
               icon: const Icon(Icons.play_arrow_rounded),
               label: const Text('一键开始今日任务'),
             ),
@@ -510,6 +528,72 @@ class _HomeTabState extends State<_HomeTab> {
         ],
       ),
     );
+  }
+
+  Future<void> _startPrescription(StudyPrescription? prescription) async {
+    final questionProvider = context.read<QuestionProvider>();
+    await questionProvider.loadPracticeQuestions(
+      chapterId: prescription?.recommendedChapterId,
+      mode: prescription?.recommendedMode ?? 'random',
+      tag: prescription?.recommendedTag,
+      title: prescription?.recommendationTitle ?? '今日任务',
+    );
+    if (!mounted) return;
+    widget.homeState.goToTab(1);
+  }
+
+  Widget _buildWeakAreaMap(StudyPrescription? prescription) {
+    final weakAreas = prescription?.weakAreas ?? [];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('薄弱项地图',
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textPrimary)),
+        const SizedBox(height: 14),
+        if (weakAreas.isEmpty)
+          GlassCard(
+            padding: const EdgeInsets.all(16),
+            tint: Colors.white.withOpacity(0.72),
+            child: const Row(
+              children: [
+                Icon(Icons.insights_rounded, color: AppTheme.primary),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '暂无薄弱项，先完成一组练习，系统会自动生成章节表现。',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          Column(
+            children: weakAreas
+                .map((area) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _WeakAreaCard(
+                        area: area,
+                        onTap: () => _startWeakArea(area),
+                      ),
+                    ))
+                .toList(),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _startWeakArea(WeakArea area) async {
+    await context.read<QuestionProvider>().loadPracticeQuestions(
+          chapterId: area.chapterId,
+          mode: 'chapter',
+          title: '补强${area.chapterName}',
+        );
+    if (!mounted) return;
+    widget.homeState.goToTab(1);
   }
 
   Widget _buildContinueCard(QuestionProvider provider) {
@@ -660,6 +744,9 @@ class _ExamCategorySelector extends StatelessWidget {
           onSelected: (_) {
             final provider = context.read<QuestionProvider>();
             provider.setExamCategory(category);
+            context
+                .read<StudyProvider>()
+                .loadPrescription(examCategory: category);
           },
         );
       }).toList(),
@@ -668,6 +755,87 @@ class _ExamCategorySelector extends StatelessWidget {
 }
 
 // ── Reusable Widgets ──
+class _WeakAreaCard extends StatelessWidget {
+  final WeakArea area;
+  final VoidCallback onTap;
+
+  const _WeakAreaCard({required this.area, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = (area.accuracyRate * 100).round();
+    final color = area.status == '薄弱'
+        ? AppTheme.error
+        : area.status == '一般'
+            ? AppTheme.accent
+            : area.status == '待开始'
+                ? AppTheme.primary
+                : AppTheme.success;
+    final subtitle = area.practiceCount == 0
+        ? '还没练过，建议先做一组摸底'
+        : '已练 ${area.practiceCount} 题 · 错 ${area.wrongCount} 题 · 正确率 $percent%';
+    return GlassCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(16),
+      tint: color.withOpacity(0.07),
+      borderColor: color.withOpacity(0.12),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(Icons.radar_rounded, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  area.chapterName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              area.status,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _QuickActionCard extends StatelessWidget {
   final IconData icon;
   final String title;

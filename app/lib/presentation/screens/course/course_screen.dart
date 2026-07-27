@@ -178,6 +178,10 @@ class _CourseCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassCard(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => _CourseDetailScreen(course: course)),
+      ),
       padding: const EdgeInsets.all(16),
       tint: Colors.white.withOpacity(0.82),
       borderColor: AppTheme.divider.withOpacity(0.72),
@@ -271,12 +275,16 @@ class _CourseCard extends StatelessWidget {
                     onPressed: () => _startCoursePractice(context),
                     icon: const Icon(Icons.notifications_active_rounded,
                         size: 18),
-                    label: const Text('查看对应题库'),
+                    label: const Text('查看详情'),
                   )
                 : OutlinedButton.icon(
-                    onPressed: () => _startCoursePractice(context),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => _CourseDetailScreen(course: course)),
+                    ),
                     icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                    label: const Text('课后练习'),
+                    label: const Text('进入课程'),
                   ),
           ),
         ],
@@ -284,8 +292,172 @@ class _CourseCard extends StatelessWidget {
     );
   }
 
-  Future<void> _startCoursePractice(BuildContext context) async {
-    if (course.chapterId == null) {
+  void _startCoursePractice(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => _CourseDetailScreen(course: course)),
+    );
+  }
+}
+
+class _CourseDetailScreen extends StatelessWidget {
+  final _Course course;
+
+  const _CourseDetailScreen({required this.course});
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassScaffold(
+      appBar: AppBar(title: const Text('课程详情')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GlassCard(
+              padding: const EdgeInsets.all(18),
+              tint: Colors.white.withOpacity(0.84),
+              borderColor: AppTheme.divider.withOpacity(0.72),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 54,
+                        height: 54,
+                        decoration: BoxDecoration(
+                          color: course.color.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Icon(course.icon, color: course.color),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                _Badge(
+                                    label: course.typeLabel,
+                                    color: course.color),
+                                const SizedBox(width: 8),
+                                Text(course.level,
+                                    style: const TextStyle(
+                                        color: AppTheme.textHint,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700)),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              course.title,
+                              style: const TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 20,
+                                height: 1.28,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(course.teacher,
+                      style: const TextStyle(color: AppTheme.textSecondary)),
+                  const SizedBox(height: 8),
+                  Text(course.time,
+                      style: const TextStyle(color: AppTheme.textSecondary)),
+                  const SizedBox(height: 14),
+                  Text(
+                    course.description.isEmpty
+                        ? '本课程围绕考试大纲重点章节展开，建议先做课前摸底，再学习课程内容，最后完成课后练习。'
+                        : course.description,
+                    style: const TextStyle(
+                      color: AppTheme.textSecondary,
+                      height: 1.55,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              '学习闭环',
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _CourseLoopStep(
+              index: '1',
+              title: '课前摸底',
+              subtitle: course.chapterId == null
+                  ? '该课程暂未关联章节，无法生成课前练习'
+                  : '先做未做题，快速判断这节课该重点听什么',
+              buttonText: '开始课前练习',
+              enabled: course.chapterId != null,
+              onTap: () =>
+                  _startPractice(context, mode: 'unanswered', title: '课前摸底'),
+            ),
+            const SizedBox(height: 10),
+            _CourseLoopStep(
+              index: '2',
+              title: '学习课程',
+              subtitle: course.isLive
+                  ? '按直播安排跟学，课后马上做题巩固'
+                  : '完成 ${course.lessons}，建议边听边记录错题知识点',
+              buttonText: course.isLive ? '查看直播安排' : '开始学习课程',
+              enabled: true,
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(course.isLive
+                        ? '直播安排：${course.time}'
+                        : '课程播放功能将在下一阶段接入'),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 10),
+            _CourseLoopStep(
+              index: '3',
+              title: '课后练习',
+              subtitle: course.chapterId == null
+                  ? '该课程暂未关联章节题库'
+                  : '围绕关联章节刷题，形成“课程 → 练习 → 错题复习”',
+              buttonText: '开始课后练习',
+              enabled: course.chapterId != null,
+              onTap: () =>
+                  _startPractice(context, mode: 'chapter', title: '课后练习'),
+            ),
+            const SizedBox(height: 10),
+            _CourseLoopStep(
+              index: '4',
+              title: '错题复习',
+              subtitle: '课后练习答错的题会进入错题本，后续可集中复习',
+              buttonText: '复习错题',
+              enabled: true,
+              onTap: () =>
+                  _startPractice(context, mode: 'wrong', title: '课程错题复习'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startPractice(
+    BuildContext context, {
+    required String mode,
+    required String title,
+  }) async {
+    if (course.chapterId == null && mode != 'wrong') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('该课程暂未关联章节题库')),
       );
@@ -293,14 +465,92 @@ class _CourseCard extends StatelessWidget {
     }
     final provider = context.read<QuestionProvider>();
     await provider.loadPracticeQuestions(
-      chapterId: course.chapterId,
-      mode: 'chapter',
-      title: '${course.title} · 课后练习',
+      chapterId: mode == 'wrong' ? null : course.chapterId,
+      mode: mode,
+      title: '${course.title} · $title',
     );
     if (!context.mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const PracticeScreen()),
+    );
+  }
+}
+
+class _CourseLoopStep extends StatelessWidget {
+  final String index;
+  final String title;
+  final String subtitle;
+  final String buttonText;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _CourseLoopStep({
+    required this.index,
+    required this.title,
+    required this.subtitle,
+    required this.buttonText,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      tint: Colors.white.withOpacity(0.78),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: enabled
+                      ? AppTheme.primary.withOpacity(0.12)
+                      : AppTheme.textHint.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  index,
+                  style: TextStyle(
+                    color: enabled ? AppTheme.primary : AppTheme.textHint,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    Text(subtitle,
+                        style: const TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 12,
+                            height: 1.35)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: enabled ? onTap : null,
+              child: Text(buttonText),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -365,6 +615,7 @@ class _Course {
   final String teacher;
   final String time;
   final String lessons;
+  final String description;
   final String typeLabel;
   final String level;
   final int? chapterId;
@@ -378,6 +629,7 @@ class _Course {
     required this.teacher,
     required this.time,
     required this.lessons,
+    required this.description,
     required this.typeLabel,
     required this.level,
     required this.chapterId,
@@ -395,6 +647,7 @@ class _Course {
       teacher: '主讲：${json['teacher'] ?? ''}',
       time: json['schedule'] ?? '',
       lessons: isLive ? '直播课' : '${json['lesson_count'] ?? 0} 讲',
+      description: json['description'] ?? '',
       typeLabel: isLive ? '直播' : '录播',
       level: json['exam_category'] ?? '',
       chapterId: json['chapter_id'],

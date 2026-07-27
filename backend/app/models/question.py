@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -45,4 +45,23 @@ class QuestionRecord(Base):
     is_wrong = Column(Boolean, default=False)  # 是否进入错题本
     wrong_reason = Column(String(50), nullable=True)  # 粗心/概念不清/记忆模糊
     time_spent = Column(Integer, default=0)  # 花费秒数
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class ExamAttempt(Base):
+    """用户模考记录"""
+    __tablename__ = "exam_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    exam_category = Column(String(50), nullable=False, default="执业资格")
+    total_questions = Column(Integer, default=0)
+    answered_count = Column(Integer, default=0)
+    unanswered_count = Column(Integer, default=0)
+    correct_count = Column(Integer, default=0)
+    wrong_count = Column(Integer, default=0)
+    score = Column(Float, default=0)
+    accuracy_rate = Column(Float, default=0)
+    time_spent = Column(Integer, default=0)
+    report = Column(JSON, default=dict)
     created_at = Column(DateTime, server_default=func.now())

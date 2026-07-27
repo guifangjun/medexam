@@ -110,6 +110,9 @@ class ExamQuestionResult(BaseModel):
 
 
 class ExamSubmitResponse(BaseModel):
+    id: Optional[int] = None
+    exam_category: Optional[str] = None
+    created_at: Optional[datetime] = None
     total_questions: int
     answered_count: int
     unanswered_count: int
@@ -120,3 +123,19 @@ class ExamSubmitResponse(BaseModel):
     time_spent: int
     wrong_questions: List[ExamQuestionResult]
     results: List[ExamQuestionResult]
+
+
+class ExamAttemptSummary(BaseModel):
+    id: int
+    exam_category: str
+    total_questions: int
+    answered_count: int
+    correct_count: int
+    wrong_count: int
+    score: float
+    accuracy_rate: float
+    time_spent: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

@@ -17,6 +17,14 @@ class _ExamScreenState extends State<ExamScreen> {
   int _selectedCount = 50;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<QuestionProvider>().loadExamAttempts();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('模考')),
@@ -177,7 +185,146 @@ class _ExamScreenState extends State<ExamScreen> {
           _RuleItem(Icons.access_time_rounded, '限时作答', '按标准考试时间计时'),
           _RuleItem(Icons.lock_outline_rounded, '不可回退', '提交后不能返回修改'),
           _RuleItem(Icons.bar_chart_rounded, '详细报告', '考后查看知识点分析'),
+          const SizedBox(height: 24),
+          _ExamHistorySection(attempts: provider.examAttempts),
         ],
+      ),
+    );
+  }
+}
+
+class _ExamHistorySection extends StatelessWidget {
+  final List<ExamAttemptSummary> attempts;
+
+  const _ExamHistorySection({required this.attempts});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('模考记录',
+                style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textPrimary,
+                    fontSize: 16)),
+            TextButton.icon(
+              onPressed: () =>
+                  context.read<QuestionProvider>().loadExamAttempts(),
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('刷新'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (attempts.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Text('暂无模考记录，完成一次模考后可在这里回看报告。',
+                style: TextStyle(color: AppTheme.textSecondary)),
+          )
+        else
+          ...attempts.map(
+            (attempt) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _ExamAttemptCard(attempt: attempt),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ExamAttemptCard extends StatelessWidget {
+  final ExamAttemptSummary attempt;
+
+  const _ExamAttemptCard({required this.attempt});
+
+  String get _dateText {
+    final d = attempt.createdAt;
+    return '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')} '
+        '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+
+  String get _timeText {
+    final minutes = attempt.timeSpent ~/ 60;
+    final seconds = attempt.timeSpent % 60;
+    return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () async {
+        final provider = context.read<QuestionProvider>();
+        final result = await provider.loadExamAttempt(attempt.id);
+        if (!context.mounted || result == null) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => _ExamResultView(
+              result: result,
+              timedOut: false,
+              onDone: () => Navigator.pop(context),
+            ),
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.divider),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                attempt.score.toStringAsFixed(0),
+                style: const TextStyle(
+                    color: AppTheme.primary,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${attempt.examCategory}模考 · $_dateText',
+                      style: const TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  Text(
+                    '正确 ${attempt.correctCount}/${attempt.totalQuestions} 题 · 错 ${attempt.wrongCount} 题 · 用时 $_timeText',
+                    style: const TextStyle(
+                        color: AppTheme.textSecondary, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: AppTheme.textHint),
+          ],
+        ),
       ),
     );
   }
@@ -606,6 +753,8 @@ class _ExamResultView extends StatelessWidget {
                 _ResultMetric('错题', '${result.wrongCount}题'),
               ],
             ),
+            const SizedBox(height: 16),
+            _ExamReportCard(result: result),
             const SizedBox(height: 24),
             const Text('错题解析',
                 style: TextStyle(
@@ -669,6 +818,126 @@ class _ResultMetric extends StatelessWidget {
                     color: AppTheme.textPrimary,
                     fontWeight: FontWeight.w700,
                     fontSize: 16)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExamReportCard extends StatelessWidget {
+  final ExamResult result;
+
+  const _ExamReportCard({required this.result});
+
+  @override
+  Widget build(BuildContext context) {
+    final topTags = result.weakTagCounts.entries.take(4).toList();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.primary.withOpacity(0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.auto_awesome_rounded, color: AppTheme.primary),
+              SizedBox(width: 8),
+              Text(
+                'AI 学习建议',
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...result.aiAdvice.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('• ',
+                      style: TextStyle(
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.w800)),
+                  Expanded(
+                    child: Text(
+                      item,
+                      style: const TextStyle(
+                          color: AppTheme.textSecondary, height: 1.45),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (topTags.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: topTags
+                  .map((entry) => _Tag('${entry.key} ×${entry.value}',
+                      entry.value >= 2 ? AppTheme.error : AppTheme.accent))
+                  .toList(),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              _MiniReportMetric(
+                label: '正确率',
+                value: '${(result.accuracyRate * 100).round()}%',
+              ),
+              const SizedBox(width: 8),
+              _MiniReportMetric(
+                label: '平均用时',
+                value: '${result.averageSecondsPerQuestion.round()}秒/题',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniReportMetric extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _MiniReportMetric({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.82),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: const TextStyle(
+                    color: AppTheme.textHint,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text(value,
+                style: const TextStyle(
+                    color: AppTheme.textPrimary, fontWeight: FontWeight.w800)),
           ],
         ),
       ),

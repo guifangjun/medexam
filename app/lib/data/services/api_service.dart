@@ -204,6 +204,17 @@ class ApiService {
     return _dio.post(ApiConstants.examSubmit, data: data);
   }
 
+  Future<Response> getExamAttempts({int skip = 0, int limit = 20}) async {
+    return _dio.get(ApiConstants.examAttempts, queryParameters: {
+      'skip': skip,
+      'limit': limit,
+    });
+  }
+
+  Future<Response> getExamAttempt(int attemptId) async {
+    return _dio.get('${ApiConstants.examAttempts}/$attemptId');
+  }
+
   // ============ Admin ============
 
   Future<Response> getAdminQuestions({
@@ -354,6 +365,13 @@ class ApiService {
 
   Future<Response> getTodayStats() async {
     return _dio.get(ApiConstants.statsToday);
+  }
+
+  Future<Response> getStudyPrescription({String? examCategory}) async {
+    return _dio.get(ApiConstants.studyPrescription, queryParameters: {
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+    });
   }
 
   Future<Response> getStatsOverview() async {
