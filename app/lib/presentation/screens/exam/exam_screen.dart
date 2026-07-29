@@ -3,8 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/models/question.dart';
+import '../../../data/models/conversation.dart';
+import '../../../data/providers/ai_chat_provider.dart';
+import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/question_provider.dart';
+import '../../../data/providers/study_provider.dart';
+import '../../../core/constants/api_constants.dart';
 import '../../../core/theme/app_theme.dart';
+import '../practice/practice_screen.dart';
 
 class ExamScreen extends StatefulWidget {
   const ExamScreen({super.key});
@@ -20,7 +26,9 @@ class _ExamScreenState extends State<ExamScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<QuestionProvider>().loadExamAttempts();
+      final provider = context.read<QuestionProvider>();
+      provider.loadExamAttempts();
+      provider.loadExamAvailability();
     });
   }
 
@@ -30,7 +38,7 @@ class _ExamScreenState extends State<ExamScreen> {
       appBar: AppBar(title: const Text('模考')),
       body: Consumer<QuestionProvider>(
         builder: (context, provider, _) {
-          if (provider.hasQuestions) {
+          if (provider.hasExamQuestions) {
             return _ExamSessionScreen(questionCount: _selectedCount);
           }
           return _buildSetupView();
@@ -42,6 +50,17 @@ class _ExamScreenState extends State<ExamScreen> {
   Widget _buildSetupView() {
     final provider = context.watch<QuestionProvider>();
     final examCategory = provider.examCategory;
+    final availableCount = provider.examAvailableCount;
+    final countOptions = _buildCountOptions(availableCount);
+    final canStart = availableCount == null || availableCount > 0;
+    if (availableCount != null &&
+        countOptions.isNotEmpty &&
+        !countOptions.contains(_selectedCount)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _selectedCount = countOptions.last);
+      });
+    }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -82,6 +101,14 @@ class _ExamScreenState extends State<ExamScreen> {
             ),
           ),
           const SizedBox(height: 24),
+          const Text('考试分类',
+              style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textPrimary,
+                  fontSize: 15)),
+          const SizedBox(height: 12),
+          _buildExamCategorySelector(provider),
+          const SizedBox(height: 24),
           const Text('选择题量',
               style: TextStyle(
                   fontWeight: FontWeight.w600,
@@ -89,12 +116,16 @@ class _ExamScreenState extends State<ExamScreen> {
                   fontSize: 15)),
           const SizedBox(height: 12),
           Row(
-            children: [25, 50, 100].map((count) {
+            children: countOptions.map((count) {
               final sel = _selectedCount == count;
+              final isFirst = count == countOptions.first;
+              final isLast = count == countOptions.last;
               return Expanded(
                 child: Padding(
                   padding: EdgeInsets.only(
-                      left: count == 25 ? 0 : 8, right: count == 100 ? 0 : 8),
+                    left: isFirst ? 0 : 8,
+                    right: isLast ? 0 : 8,
+                  ),
                   child: GestureDetector(
                     onTap: () => setState(() => _selectedCount = count),
                     child: Container(
@@ -132,6 +163,20 @@ class _ExamScreenState extends State<ExamScreen> {
               );
             }).toList(),
           ),
+          if (availableCount != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              availableCount > 0
+                  ? '当前题库可用于模考：$availableCount 题，已自动隐藏超出题库数量的选项。'
+                  : '当前考试目标暂无可用模考题，请先在后台添加题目。',
+              style: TextStyle(
+                color: availableCount > 0
+                    ? AppTheme.textSecondary
+                    : AppTheme.error,
+                fontSize: 13,
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           Container(
             padding: const EdgeInsets.all(14),
@@ -157,11 +202,13 @@ class _ExamScreenState extends State<ExamScreen> {
             width: double.infinity,
             height: 52,
             child: ElevatedButton.icon(
-              onPressed: () {
-                context
-                    .read<QuestionProvider>()
-                    .loadExamQuestions(count: _selectedCount);
-              },
+              onPressed: canStart
+                  ? () {
+                      context
+                          .read<QuestionProvider>()
+                          .loadExamQuestions(count: _selectedCount);
+                    }
+                  : null,
               icon: const Icon(Icons.play_arrow_rounded),
               label: const Text('开始模考'),
             ),
@@ -183,13 +230,87 @@ class _ExamScreenState extends State<ExamScreen> {
                   fontSize: 15)),
           const SizedBox(height: 12),
           _RuleItem(Icons.access_time_rounded, '限时作答', '按标准考试时间计时'),
-          _RuleItem(Icons.lock_outline_rounded, '不可回退', '提交后不能返回修改'),
+          _RuleItem(Icons.lock_outline_rounded, '提交后锁定', '交卷前可检查答案，交卷后不能修改'),
           _RuleItem(Icons.bar_chart_rounded, '详细报告', '考后查看知识点分析'),
           const SizedBox(height: 24),
           _ExamHistorySection(attempts: provider.examAttempts),
         ],
       ),
     );
+  }
+
+  Widget _buildExamCategorySelector(QuestionProvider provider) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: AppConstants.examCategories.map((category) {
+        final isSelected = category == provider.examCategory;
+        return ChoiceChip(
+          label: Text(category),
+          selected: isSelected,
+          showCheckmark: false,
+          labelStyle: TextStyle(
+            color: isSelected ? Colors.white : AppTheme.textSecondary,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+          selectedColor: AppTheme.primary,
+          backgroundColor: Colors.white,
+          side: BorderSide(
+            color: isSelected ? AppTheme.primary : AppTheme.divider,
+          ),
+          onSelected: (_) {
+            if (isSelected) return;
+            _switchExamCategory(category);
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  Future<void> _switchExamCategory(String category) async {
+    setState(() => _selectedCount = 50);
+    final questionProvider = context.read<QuestionProvider>();
+    questionProvider.setExamCategory(category);
+
+    final study = context.read<StudyProvider>();
+    study.loadStudyPlans(examCategory: category);
+    study.loadTodayTask(examCategory: category);
+    study.loadTodayStats(examCategory: category);
+    study.loadPrescription(examCategory: category);
+    study.loadWrongReviewCalendar(examCategory: category);
+    study.loadWrongReviewPlan(examCategory: category);
+    context
+        .read<AIChatProvider>()
+        .clearStudyAdvice(exceptExamCategory: category);
+    context
+        .read<AIChatProvider>()
+        .clearLearningPath(exceptExamCategory: category);
+
+    final saved = await context.read<AuthProvider>().updateTargetExam(category);
+    if (!mounted || saved) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          context.read<AuthProvider>().error ?? '考试分类已切换，但保存到账号失败',
+        ),
+        backgroundColor: AppTheme.error,
+      ),
+    );
+  }
+
+  List<int> _buildCountOptions(int? availableCount) {
+    if (availableCount == null) return const [25, 50, 100];
+    if (availableCount <= 0) return const [25];
+    final options = <int>[];
+    for (final count in const [25, 50, 100]) {
+      if (count <= availableCount) options.add(count);
+    }
+    if (!options.contains(availableCount)) {
+      options.add(availableCount);
+    }
+    options.sort();
+    return options;
   }
 }
 
@@ -267,7 +388,13 @@ class _ExamAttemptCard extends StatelessWidget {
       onTap: () async {
         final provider = context.read<QuestionProvider>();
         final result = await provider.loadExamAttempt(attempt.id);
-        if (!context.mounted || result == null) return;
+        if (!context.mounted) return;
+        if (result == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(provider.error ?? '加载模考报告失败')),
+          );
+          return;
+        }
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -297,7 +424,7 @@ class _ExamAttemptCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Text(
-                attempt.score.toStringAsFixed(0),
+                _formatScore(attempt.score),
                 style: const TextStyle(
                     color: AppTheme.primary,
                     fontWeight: FontWeight.w900,
@@ -322,7 +449,17 @@ class _ExamAttemptCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: AppTheme.textHint),
+            const SizedBox(width: 10),
+            const Text(
+              '查看报告',
+              style: TextStyle(
+                color: AppTheme.primary,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded, color: AppTheme.primary),
           ],
         ),
       ),
@@ -418,6 +555,64 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
   int get _timeSpent => _initialSeconds - _seconds;
   bool get _locked => _isSubmitting || _timedOut;
 
+  Future<void> _confirmSubmitExam() async {
+    if (_locked) return;
+    final shouldSubmit = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('确认交卷？'),
+            content: const Text('交卷后不能修改答案，剩余未答题将按未答处理。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('继续答题'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('交卷'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!shouldSubmit || !mounted) return;
+    await _submitExam();
+  }
+
+  Future<void> _confirmExitExam() async {
+    if (_locked) return;
+    final shouldExit = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('退出本次模考？'),
+            content: const Text('当前答题进度会清空，不会生成报告。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('继续答题'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.error,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('退出'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!shouldExit || !mounted) return;
+    _timer?.cancel();
+    context.read<QuestionProvider>().reset();
+  }
+
   Future<void> _submitExam({bool timedOut = false}) async {
     if (_isSubmitting) return;
     setState(() {
@@ -428,6 +623,15 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
     final result = await context.read<QuestionProvider>().submitExam(
           timeSpent: _timeSpent,
         );
+    if (!mounted) return;
+    if (result != null) {
+      final examCategory = context.read<QuestionProvider>().examCategory;
+      final study = context.read<StudyProvider>();
+      await study.loadTodayStats(examCategory: examCategory);
+      await study.loadTodayTask(examCategory: examCategory);
+      await study.loadPrescription(examCategory: examCategory);
+      await study.loadStatsOverview(examCategory: examCategory);
+    }
     if (!mounted) return;
     setState(() => _isSubmitting = false);
     if (result == null && !timedOut) {
@@ -476,29 +680,15 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                         : AppTheme.textPrimary)),
             centerTitle: true,
             leading: IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () => showDialog(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
-                  title: const Text('确认交卷？'),
-                  content: const Text('剩余未答题将不计分。'),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('继续答题')),
-                    ElevatedButton(
-                        onPressed: () {
-                          _submitExam();
-                          Navigator.pop(ctx);
-                        },
-                        child: const Text('交卷')),
-                  ],
-                ),
-              ),
+              icon: const Icon(Icons.arrow_back_rounded),
+              tooltip: '退出模考',
+              onPressed: _locked ? null : _confirmExitExam,
             ),
             actions: [
+              TextButton(
+                onPressed: _locked ? null : _confirmSubmitExam,
+                child: Text(_isSubmitting ? '交卷中...' : '交卷'),
+              ),
               Center(
                 child: Padding(
                   padding: const EdgeInsets.only(right: 16),
@@ -651,7 +841,7 @@ class _ExamSessionScreenState extends State<_ExamSessionScreen> {
                           onPressed: _isSubmitting
                               ? null
                               : provider.isLastQuestion
-                                  ? () => _submitExam()
+                                  ? _confirmSubmitExam
                                   : () => provider.nextQuestion(),
                           child: Text(
                             _isSubmitting
@@ -724,7 +914,7 @@ class _ExamResultView extends StatelessWidget {
                               color: AppTheme.error,
                               fontWeight: FontWeight.w600)),
                     ),
-                  Text('${result.score.toStringAsFixed(1)}分',
+                  Text('${_formatScore(result.score)}分',
                       style: const TextStyle(
                           fontSize: 36,
                           fontWeight: FontWeight.w800,
@@ -755,6 +945,11 @@ class _ExamResultView extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _ExamReportCard(result: result),
+            const SizedBox(height: 16),
+            _ExamNextActionCard(
+              result: result,
+              onBackToExamHome: onDone,
+            ),
             const SizedBox(height: 24),
             const Text('错题解析',
                 style: TextStyle(
@@ -782,6 +977,183 @@ class _ExamResultView extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: onDone,
                 child: const Text('返回模考首页'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExamNextActionCard extends StatelessWidget {
+  final ExamResult result;
+  final VoidCallback onBackToExamHome;
+
+  const _ExamNextActionCard({
+    required this.result,
+    required this.onBackToExamHome,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final weakTag = result.weakTagCounts.keys.isNotEmpty
+        ? result.weakTagCounts.keys.first
+        : null;
+    final hasWrongQuestions = result.wrongQuestions.isNotEmpty;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.route_rounded, color: AppTheme.primary),
+              SizedBox(width: 8),
+              Text(
+                '下一步学习安排',
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _nextActionText(result, weakTag),
+            style: const TextStyle(color: AppTheme.textSecondary, height: 1.45),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              if (hasWrongQuestions)
+                _ActionChipButton(
+                  icon: Icons.assignment_late_rounded,
+                  label: '复习本次错题',
+                  color: AppTheme.error,
+                  onTap: () => _startPractice(
+                    context,
+                    mode: 'wrong',
+                    questionIds: result.wrongQuestions
+                        .map((question) => question.questionId)
+                        .toList(),
+                    title: '模考错题复习',
+                  ),
+                ),
+              if (weakTag != null)
+                _ActionChipButton(
+                  icon: Icons.local_fire_department_rounded,
+                  label: '练习薄弱点：$weakTag',
+                  color: Colors.orange,
+                  onTap: () => _startPractice(
+                    context,
+                    mode: 'tag',
+                    tag: weakTag,
+                    title: '$weakTag专项巩固',
+                  ),
+                ),
+              _ActionChipButton(
+                icon: Icons.refresh_rounded,
+                label: '返回模考首页',
+                color: AppTheme.primary,
+                onTap: onBackToExamHome,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _nextActionText(ExamResult result, String? weakTag) {
+    if (result.wrongQuestions.isEmpty && result.accuracyRate >= 0.8) {
+      return '这次发挥不错，可以回到模考首页再开一套限时模考，保持考试手感。';
+    }
+    if (weakTag != null) {
+      return '建议先处理失分最多的知识点“$weakTag”，再回到模考检验是否真正补上短板。';
+    }
+    if (result.wrongQuestions.isNotEmpty) {
+      return '先把本次错题复习一遍，确认每道题为什么错，再进入下一轮训练。';
+    }
+    return '本次报告已生成，可以回到模考首页继续下一套练习。';
+  }
+
+  Future<void> _startPractice(
+    BuildContext context, {
+    required String mode,
+    String? tag,
+    List<int>? questionIds,
+    required String title,
+  }) async {
+    final provider = context.read<QuestionProvider>();
+    await provider.loadPracticeQuestions(
+      mode: mode,
+      tag: tag,
+      questionIds: questionIds,
+      title: title,
+    );
+    if (!context.mounted) return;
+    if (provider.currentQuestions.isEmpty) {
+      final message = provider.error ??
+          (mode == 'tag' ? '当前薄弱点暂无可练习题目，请先复习本次错题' : '暂无可复习题目');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const PracticeScreen()),
+    );
+  }
+}
+
+class _ActionChipButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ActionChipButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withOpacity(0.18)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 17, color: color),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
               ),
             ),
           ],
@@ -825,13 +1197,67 @@ class _ResultMetric extends StatelessWidget {
   }
 }
 
-class _ExamReportCard extends StatelessWidget {
+class _ExamReportCard extends StatefulWidget {
   final ExamResult result;
 
   const _ExamReportCard({required this.result});
 
   @override
+  State<_ExamReportCard> createState() => _ExamReportCardState();
+}
+
+class _ExamReportCardState extends State<_ExamReportCard> {
+  late Future<AITextResult?> _aiReportFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _aiReportFuture = _initialReportFuture();
+  }
+
+  Future<AITextResult?> _initialReportFuture() {
+    final result = widget.result;
+    final cached = result.aiReport;
+    if (cached != null && cached.content.trim().isNotEmpty) {
+      return Future.value(
+        AITextResult(
+          title: cached.title,
+          content: cached.content,
+          actions: cached.actions,
+          isDemo: cached.isDemo,
+          sessionId: cached.sessionId,
+          userMessageId: cached.userMessageId,
+          assistantMessageId: cached.assistantMessageId,
+        ),
+      );
+    }
+    return _generateReport();
+  }
+
+  Future<AITextResult?> _generateReport() {
+    final result = widget.result;
+    return context.read<AIChatProvider>().buildExamReport(
+          attemptId: result.id,
+          examCategory: result.examCategory ?? '执业资格',
+          totalQuestions: result.totalQuestions,
+          correctCount: result.correctCount,
+          wrongCount: result.wrongCount,
+          unansweredCount: result.unansweredCount,
+          accuracyRate: result.accuracyRate,
+          timeSpent: result.timeSpent,
+          weakTags: result.weakTagCounts,
+        );
+  }
+
+  void _refreshReport() {
+    setState(() {
+      _aiReportFuture = _generateReport();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final result = widget.result;
     final topTags = result.weakTagCounts.entries.take(4).toList();
     return Container(
       width: double.infinity,
@@ -844,41 +1270,93 @@ class _ExamReportCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
-            children: [
-              Icon(Icons.auto_awesome_rounded, color: AppTheme.primary),
-              SizedBox(width: 8),
-              Text(
-                'AI 学习建议',
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ...result.aiAdvice.map(
-            (item) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
+          FutureBuilder<AITextResult?>(
+            future: _aiReportFuture,
+            builder: (context, snapshot) {
+              final ai = snapshot.data;
+              final isWaiting =
+                  snapshot.connectionState == ConnectionState.waiting;
+              return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('• ',
-                      style: TextStyle(
-                          color: AppTheme.primary,
-                          fontWeight: FontWeight.w800)),
-                  Expanded(
-                    child: Text(
-                      item,
-                      style: const TextStyle(
-                          color: AppTheme.textSecondary, height: 1.45),
-                    ),
+                  Row(
+                    children: [
+                      const Icon(Icons.auto_awesome_rounded,
+                          color: AppTheme.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        ai?.title.trim().isNotEmpty == true
+                            ? ai!.title
+                            : 'AI 模考报告',
+                        style: const TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      if (isWaiting) ...[
+                        const SizedBox(width: 8),
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ],
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: isWaiting ? null : _refreshReport,
+                        icon: const Icon(Icons.refresh_rounded, size: 16),
+                        label: const Text('刷新'),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 12),
+                  if (isWaiting)
+                    const Text(
+                      '正在生成 AI 模考报告，请稍候…',
+                      style: TextStyle(
+                          color: AppTheme.textSecondary, height: 1.45),
+                    )
+                  else if (ai?.content.isNotEmpty == true)
+                    Text(_readableAiContent(ai!.content),
+                        style: const TextStyle(
+                            color: AppTheme.textSecondary, height: 1.45))
+                  else
+                    ...result.aiAdvice.map(
+                      (item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('• ',
+                                style: TextStyle(
+                                    color: AppTheme.primary,
+                                    fontWeight: FontWeight.w800)),
+                            Expanded(
+                              child: Text(
+                                item,
+                                style: const TextStyle(
+                                    color: AppTheme.textSecondary,
+                                    height: 1.45),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (ai?.actions.isNotEmpty == true) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: ai!.actions
+                          .map((action) => _Tag(action, AppTheme.primary))
+                          .toList(),
+                    ),
+                  ],
                 ],
-              ),
-            ),
+              );
+            },
           ),
           if (topTags.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -908,6 +1386,18 @@ class _ExamReportCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _readableAiContent(String raw) {
+    return raw
+        .split('\n')
+        .map((line) => line
+            .replaceFirst(RegExp(r'^\s*#{1,6}\s*'), '')
+            .replaceAll('**', '')
+            .replaceFirst(RegExp(r'^\s*[-*]\s+'), '• ')
+            .trimRight())
+        .where((line) => line.trim().isNotEmpty)
+        .join('\n');
   }
 }
 
@@ -1002,4 +1492,9 @@ class _Tag extends StatelessWidget {
               fontSize: 12, fontWeight: FontWeight.w500, color: color)),
     );
   }
+}
+
+String _formatScore(double score) {
+  if (score == score.roundToDouble()) return score.toStringAsFixed(0);
+  return score.toStringAsFixed(1);
 }

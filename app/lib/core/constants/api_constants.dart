@@ -1,6 +1,6 @@
 class ApiConstants {
   // 后端 API 地址，开发环境指向本机
-  static const String baseUrl = 'http://localhost:8000';
+  static const String baseUrl = 'http://127.0.0.1:8000';
 
   // API 端点
   static const String auth = '/api/auth';
@@ -12,6 +12,7 @@ class ApiConstants {
   static const String chapters = '$questions/chapters';
   static const String practice = '$questions/practice';
   static const String exam = '$questions/exam';
+  static const String examCount = '$questions/exam/count';
   static const String examAttempts = '$questions/exam/attempts';
   static const String submit = '$questions/submit';
   static const String examSubmit = '$questions/exam/submit';
@@ -20,11 +21,14 @@ class ApiConstants {
   static const String chat = '$ai/chat';
   static const String aiHistory = '$ai/history';
   static const String aiSessions = '$ai/sessions';
+  static const String aiCollections = '$ai/collections';
 
   static const String study = '/api/study';
   static const String studyPlan = '$study/plan';
   static const String todayTask = '$study/today';
   static const String wrong = '$study/wrong';
+  static const String wrongCalendar = '$wrong/calendar';
+  static const String wrongReviewPlan = '$wrong/review-plan';
   static const String statsToday = '$study/stats/today';
   static const String statsOverview = '$study/stats/overview';
   static const String studyPrescription = '$study/prescription';
@@ -44,6 +48,22 @@ class AppConstants {
 
   // 考试类型
   static const List<String> examTypes = ['执业医师', '助理医师'];
+
+  static String normalizeExamCategory(String? value) {
+    switch (value) {
+      case '初级职称':
+      case '中级职称':
+      case '高级职称':
+        return value!;
+      case '执业医师':
+      case '助理医师':
+      case '临床执业医师':
+      case '临床助理医师':
+      case '执业资格':
+      default:
+        return '执业资格';
+    }
+  }
 
   // 错因分类
   static const List<String> wrongReasons = [

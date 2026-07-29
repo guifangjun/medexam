@@ -1,10 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 
 import '../../../core/constants/api_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/chapter.dart';
 import '../../../data/services/api_service.dart';
 import '../../widgets/app_glass.dart';
+
+String _adminErrorMessage(Object error, String fallback) {
+  if (error is DioException) {
+    final detail = error.response?.data;
+    if (detail is Map && detail['detail'] != null) {
+      final message = detail['detail'];
+      if (message is String && message.isNotEmpty) return message;
+      if (message is List && message.isNotEmpty) {
+        final first = message.first;
+        if (first is Map && first['msg'] != null) {
+          return first['msg'].toString();
+        }
+      }
+    }
+  }
+  return fallback;
+}
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -28,8 +46,10 @@ class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _courses = [];
   List<Map<String, dynamic>> _users = [];
   Map<String, dynamic>? _dashboard;
+  String? _selectedCourseExamCategory;
   String? _selectedUserExamCategory;
   bool? _selectedUserActive;
+  String? _loadError;
 
   @override
   void initState() {
@@ -83,19 +103,28 @@ class _AdminScreenState extends State<AdminScreen> {
   Future<void> _loadAll() async {
     setState(() => _isLoading = true);
     try {
-      final questionRes = await _api.getAdminQuestions(
-        keyword: _keywordCtl.text.trim(),
-        examCategory: _selectedExamCategory,
-        chapterId: _selectedChapterId,
-      );
-      final chapterRes = await _api.getChapters();
-      final courseRes = await _api.getAdminCourses();
-      final dashboardRes = await _api.getAdminDashboard();
-      final userRes = await _api.getAdminUsers(
-        keyword: _userKeywordCtl.text.trim(),
-        examCategory: _selectedUserExamCategory,
-        isActive: _selectedUserActive,
-      );
+      final responses = await Future.wait([
+        _api.getAdminQuestions(
+          keyword: _keywordCtl.text.trim(),
+          examCategory: _selectedExamCategory,
+          chapterId: _selectedChapterId,
+        ),
+        _api.getChapters(),
+        _api.getAdminCourses(
+          examCategory: _selectedCourseExamCategory,
+        ),
+        _api.getAdminDashboard(),
+        _api.getAdminUsers(
+          keyword: _userKeywordCtl.text.trim(),
+          examCategory: _selectedUserExamCategory,
+          isActive: _selectedUserActive,
+        ),
+      ]);
+      final questionRes = responses[0];
+      final chapterRes = responses[1];
+      final courseRes = responses[2];
+      final dashboardRes = responses[3];
+      final userRes = responses[4];
       _chapters = (chapterRes.data as List)
           .map((json) => Chapter.fromJson(json))
           .toList();
@@ -103,6 +132,36 @@ class _AdminScreenState extends State<AdminScreen> {
       _courses = List<Map<String, dynamic>>.from(courseRes.data);
       _users = List<Map<String, dynamic>>.from(userRes.data);
       _dashboard = Map<String, dynamic>.from(dashboardRes.data);
+      _loadError = null;
+    } catch (e) {
+      if (e is DioException && e.response?.statusCode == 401) {
+        await _api.clearAdminToken();
+        if (!mounted) return;
+        setState(() {
+          _admin = null;
+          _questions = [];
+          _courses = [];
+          _users = [];
+          _dashboard = null;
+          _loadError = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('后台登录已过期，请重新登录'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+        return;
+      }
+      _loadError = _adminErrorMessage(e, '后台数据加载失败，请稍后重试');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_loadError!),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -121,146 +180,192 @@ class _AdminScreenState extends State<AdminScreen> {
 
     return GlassScaffold(
       body: SafeArea(
-        child: Row(
-          children: [
-            _AdminSidebar(
-              selected: _tab,
-              admin: _admin!,
-              onSelected: (value) => setState(() => _tab = value),
-              onLogout: _logoutAdmin,
-            ),
-            Expanded(
-              child: Column(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 760;
+            if (compact) {
+              return Column(
                 children: [
-                  _TopBar(admin: _admin!, onRefresh: _loadAll),
-                  Expanded(
-                    child: _isLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : SingleChildScrollView(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _MetricRow(
-                                  questions: _questions.length,
-                                  users: _users.length,
-                                  liveCourses: _courses
-                                      .where((c) => c['course_type'] == 'live')
-                                      .length,
-                                  recordedCourses: _courses
-                                      .where(
-                                          (c) => c['course_type'] == 'recorded')
-                                      .length,
-                                ),
-                                const SizedBox(height: 20),
-                                if (_tab == 0)
-                                  _QuestionManager(
-                                    questions: _questions,
-                                    chapters: _chapters,
-                                    selectedExamCategory: _selectedExamCategory,
-                                    selectedChapterId: _selectedChapterId,
-                                    keywordCtl: _keywordCtl,
-                                    onExamCategoryChanged: (category) {
-                                      setState(() {
-                                        _selectedExamCategory = category;
-                                        _selectedChapterId = null;
-                                      });
-                                      _loadAll();
-                                    },
-                                    onChapterChanged: (chapterId) {
-                                      setState(
-                                          () => _selectedChapterId = chapterId);
-                                      _loadAll();
-                                    },
-                                    onSearch: _loadAll,
-                                    onSave: _saveQuestion,
-                                    onDelete: _deleteQuestion,
-                                  )
-                                else if (_tab == 1)
-                                  _CourseManager(
-                                    courses: _courses,
-                                    chapters: _chapters,
-                                    onSave: _saveCourse,
-                                    onDelete: _deleteCourse,
-                                  )
-                                else if (_tab == 2)
-                                  _UserManager(
-                                    users: _users,
-                                    keywordCtl: _userKeywordCtl,
-                                    selectedExamCategory:
-                                        _selectedUserExamCategory,
-                                    selectedActive: _selectedUserActive,
-                                    onExamCategoryChanged: (category) {
-                                      setState(() =>
-                                          _selectedUserExamCategory = category);
-                                      _loadAll();
-                                    },
-                                    onActiveChanged: (active) {
-                                      setState(
-                                          () => _selectedUserActive = active);
-                                      _loadAll();
-                                    },
-                                    onSearch: _loadAll,
-                                    onSave: _saveUser,
-                                    onDelete: _deleteUser,
-                                  )
-                                else
-                                  _DashboardManager(
-                                    data: _dashboard ?? {},
-                                  ),
-                              ],
-                            ),
-                          ),
+                  _AdminCompactNav(
+                    selected: _tab,
+                    admin: _admin!,
+                    onSelected: (value) => setState(() => _tab = value),
+                    onLogout: _logoutAdmin,
+                    onRefresh: _loadAll,
                   ),
+                  Expanded(child: _buildAdminContent(compact: true)),
                 ],
-              ),
-            ),
-          ],
+              );
+            }
+            return Row(
+              children: [
+                _AdminSidebar(
+                  selected: _tab,
+                  admin: _admin!,
+                  onSelected: (value) => setState(() => _tab = value),
+                  onLogout: _logoutAdmin,
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _TopBar(admin: _admin!, onRefresh: _loadAll),
+                      Expanded(child: _buildAdminContent()),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
 
+  Widget _buildAdminContent({bool compact = false}) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(compact ? 16 : 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _MetricRow(
+            questions: _dashboard?['question_count'] ?? _questions.length,
+            users: _dashboard?['user_count'] ?? _users.length,
+            liveCourses:
+                _courses.where((c) => c['course_type'] == 'live').length,
+            recordedCourses:
+                _courses.where((c) => c['course_type'] == 'recorded').length,
+          ),
+          if (_loadError != null) ...[
+            const SizedBox(height: 12),
+            _AdminInlineError(
+              message: _loadError!,
+              onRetry: _loadAll,
+            ),
+          ],
+          const SizedBox(height: 20),
+          if (_tab == 0)
+            _QuestionManager(
+              questions: _questions,
+              chapters: _chapters,
+              selectedExamCategory: _selectedExamCategory,
+              selectedChapterId: _selectedChapterId,
+              keywordCtl: _keywordCtl,
+              onExamCategoryChanged: (category) {
+                setState(() {
+                  _selectedExamCategory = category;
+                  _selectedChapterId = null;
+                });
+                _loadAll();
+              },
+              onChapterChanged: (chapterId) {
+                setState(() => _selectedChapterId = chapterId);
+                _loadAll();
+              },
+              onSearch: _loadAll,
+              onSave: _saveQuestion,
+              onDelete: _deleteQuestion,
+            )
+          else if (_tab == 1)
+            _CourseManager(
+              courses: _courses,
+              chapters: _chapters,
+              selectedExamCategory: _selectedCourseExamCategory,
+              onExamCategoryChanged: (category) {
+                setState(() => _selectedCourseExamCategory = category);
+                _loadAll();
+              },
+              onSave: _saveCourse,
+              onDelete: _deleteCourse,
+            )
+          else if (_tab == 2)
+            _UserManager(
+              users: _users,
+              keywordCtl: _userKeywordCtl,
+              selectedExamCategory: _selectedUserExamCategory,
+              selectedActive: _selectedUserActive,
+              onExamCategoryChanged: (category) {
+                setState(() => _selectedUserExamCategory = category);
+                _loadAll();
+              },
+              onActiveChanged: (active) {
+                setState(() => _selectedUserActive = active);
+                _loadAll();
+              },
+              onSearch: _loadAll,
+              onSave: _saveUser,
+              onDelete: _deleteUser,
+            )
+          else
+            _DashboardManager(
+              data: _dashboard ?? {},
+            ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _saveQuestion(Map<String, dynamic> data, {int? id}) async {
+    final isCreate = id == null;
     if (id == null) {
       await _api.createAdminQuestion(data);
     } else {
       await _api.updateAdminQuestion(id, data);
     }
     await _loadAll();
+    _showAdminSnack(isCreate ? '题目已新增' : '题目已更新');
   }
 
   Future<void> _deleteQuestion(int id) async {
     await _api.deleteAdminQuestion(id);
     await _loadAll();
+    _showAdminSnack('题目已删除');
   }
 
   Future<void> _saveCourse(Map<String, dynamic> data, {int? id}) async {
+    final isCreate = id == null;
     if (id == null) {
       await _api.createAdminCourse(data);
     } else {
       await _api.updateAdminCourse(id, data);
     }
     await _loadAll();
+    _showAdminSnack(isCreate ? '课程已新增' : '课程已更新');
   }
 
   Future<void> _deleteCourse(int id) async {
     await _api.deleteAdminCourse(id);
     await _loadAll();
+    _showAdminSnack('课程已删除');
   }
 
   Future<void> _saveUser(Map<String, dynamic> data, {int? id}) async {
+    final isCreate = id == null;
     if (id == null) {
       await _api.createAdminUser(data);
     } else {
       await _api.updateAdminUser(id, data);
     }
     await _loadAll();
+    _showAdminSnack(isCreate ? '用户已新增' : '用户已更新');
   }
 
   Future<void> _deleteUser(int id) async {
     await _api.deleteAdminUser(id);
     await _loadAll();
+    _showAdminSnack('用户已删除');
+  }
+
+  void _showAdminSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppTheme.success,
+      ),
+    );
   }
 }
 
@@ -506,7 +611,8 @@ class _AdminSidebar extends StatelessWidget {
             ),
             const Spacer(),
             OutlinedButton.icon(
-              onPressed: () => Navigator.pushNamed(context, '/'),
+              onPressed: () =>
+                  Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false),
               icon: const Icon(Icons.phone_iphone_rounded),
               label: const Text('返回学员端'),
             ),
@@ -518,6 +624,195 @@ class _AdminSidebar extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AdminCompactNav extends StatelessWidget {
+  final int selected;
+  final Map<String, dynamic> admin;
+  final ValueChanged<int> onSelected;
+  final VoidCallback onLogout;
+  final Future<void> Function() onRefresh;
+
+  const _AdminCompactNav({
+    required this.selected,
+    required this.admin,
+    required this.onSelected,
+    required this.onLogout,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = admin['full_name'] ?? admin['username'] ?? '管理员';
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: GlassCard(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.admin_panel_settings_rounded,
+                    color: AppTheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'MedExam Admin',
+                        style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        '$name · ${admin['role'] ?? 'admin'}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: '刷新',
+                  onPressed: onRefresh,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+                IconButton(
+                  tooltip: '退出后台',
+                  onPressed: onLogout,
+                  icon: const Icon(Icons.logout_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _CompactNavChip(
+                    icon: Icons.quiz_rounded,
+                    label: '题库',
+                    selected: selected == 0,
+                    onTap: () => onSelected(0),
+                  ),
+                  _CompactNavChip(
+                    icon: Icons.video_library_rounded,
+                    label: '课程',
+                    selected: selected == 1,
+                    onTap: () => onSelected(1),
+                  ),
+                  _CompactNavChip(
+                    icon: Icons.groups_rounded,
+                    label: '用户',
+                    selected: selected == 2,
+                    onTap: () => onSelected(2),
+                  ),
+                  _CompactNavChip(
+                    icon: Icons.dashboard_rounded,
+                    label: '看板',
+                    selected: selected == 3,
+                    onTap: () => onSelected(3),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactNavChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _CompactNavChip({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        selected: selected,
+        onSelected: (_) => onTap(),
+        avatar: Icon(
+          icon,
+          size: 16,
+          color: selected ? Colors.white : AppTheme.primary,
+        ),
+        label: SizedBox(
+          width: 34,
+          child: Text(label, textAlign: TextAlign.center),
+        ),
+        selectedColor: AppTheme.primary,
+        labelStyle: TextStyle(
+          color: selected ? Colors.white : AppTheme.textPrimary,
+          fontWeight: FontWeight.w700,
+        ),
+        backgroundColor: Colors.white.withOpacity(0.72),
+        side: BorderSide(color: AppTheme.divider.withOpacity(0.8)),
+      ),
+    );
+  }
+}
+
+class _AdminInlineError extends StatelessWidget {
+  final String message;
+  final Future<void> Function() onRetry;
+
+  const _AdminInlineError({
+    required this.message,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.error.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.error.withOpacity(0.18)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, color: AppTheme.error),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: AppTheme.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('重试'),
+          ),
+        ],
       ),
     );
   }
@@ -616,18 +911,43 @@ class _MetricRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _MetricCard(
-            label: '题目总数', value: '$questions', color: AppTheme.primary),
-        const SizedBox(width: 12),
-        _MetricCard(label: '用户数', value: '$users', color: AppTheme.accent),
-        const SizedBox(width: 12),
-        _MetricCard(label: '直播课', value: '$liveCourses', color: AppTheme.error),
-        const SizedBox(width: 12),
-        _MetricCard(
-            label: '录播课', value: '$recordedCourses', color: AppTheme.success),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 680) {
+          return Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _MetricCard.compact(
+                  label: '题目总数', value: '$questions', color: AppTheme.primary),
+              _MetricCard.compact(
+                  label: '用户数', value: '$users', color: AppTheme.accent),
+              _MetricCard.compact(
+                  label: '直播课', value: '$liveCourses', color: AppTheme.error),
+              _MetricCard.compact(
+                  label: '录播课',
+                  value: '$recordedCourses',
+                  color: AppTheme.success),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            _MetricCard(
+                label: '题目总数', value: '$questions', color: AppTheme.primary),
+            const SizedBox(width: 12),
+            _MetricCard(label: '用户数', value: '$users', color: AppTheme.accent),
+            const SizedBox(width: 12),
+            _MetricCard(
+                label: '直播课', value: '$liveCourses', color: AppTheme.error),
+            const SizedBox(width: 12),
+            _MetricCard(
+                label: '录播课',
+                value: '$recordedCourses',
+                color: AppTheme.success),
+          ],
+        );
+      },
     );
   }
 }
@@ -636,46 +956,53 @@ class _MetricCard extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
+  final bool compact;
 
   const _MetricCard({
     required this.label,
     required this.value,
     required this.color,
-  });
+  }) : compact = false;
+
+  const _MetricCard.compact({
+    required this.label,
+    required this.value,
+    required this.color,
+  }) : compact = true;
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: GlassCard(
-        padding: const EdgeInsets.all(18),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(Icons.analytics_rounded, color: color),
+    final card = GlassCard(
+      padding: const EdgeInsets.all(18),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
             ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(value,
-                    style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: color)),
-                Text(label,
-                    style: const TextStyle(color: AppTheme.textSecondary)),
-              ],
-            ),
-          ],
-        ),
+            child: Icon(Icons.analytics_rounded, color: color),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(value,
+                  style: TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.w800, color: color)),
+              Text(label,
+                  style: const TextStyle(color: AppTheme.textSecondary)),
+            ],
+          ),
+        ],
       ),
     );
+    if (compact) {
+      return SizedBox(width: 210, child: card);
+    }
+    return Expanded(child: card);
   }
 }
 
@@ -793,20 +1120,31 @@ class _QuestionManager extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _DataHeader(
-            columns: const ['ID', '考试科目', '题干', '类型', '难度', '答案', '操作'],
-            flexes: const [1, 2, 5, 1, 1, 1, 2],
+            columns: const ['ID', '考试分类', '章节', '题干', '类型', '难度', '答案', '操作'],
+            flexes: const [1, 2, 2, 5, 1, 1, 1, 2],
           ),
+          if (questions.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 42),
+              child: Center(
+                child: Text(
+                  '暂无题目',
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+              ),
+            ),
           ...questions.map(
             (question) => _DataRowCard(
               cells: [
                 '${question['id']}',
+                _categoryForChapterId(question['chapter_id']) ?? '-',
                 _chapterName(question['chapter_id']),
                 question['content'] ?? '',
                 _questionTypeLabel(question['question_type']),
                 '${question['difficulty'] ?? 3}',
                 question['answer'] ?? '',
               ],
-              flexes: const [1, 2, 5, 1, 1, 1],
+              flexes: const [1, 2, 2, 5, 1, 1, 1],
               actions: [
                 IconButton(
                   tooltip: '编辑',
@@ -815,7 +1153,7 @@ class _QuestionManager extends StatelessWidget {
                 ),
                 IconButton(
                   tooltip: '删除',
-                  onPressed: () => onDelete(question['id']),
+                  onPressed: () => _confirmDeleteQuestion(context, question),
                   icon: const Icon(Icons.delete_outline_rounded,
                       color: AppTheme.error),
                 ),
@@ -825,6 +1163,42 @@ class _QuestionManager extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmDeleteQuestion(
+    BuildContext context,
+    Map<String, dynamic> question,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除题目'),
+        content: Text(
+          '确定删除这道题吗？\n\n${question['content'] ?? '题目 #${question['id']}'}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      try {
+        await onDelete(question['id']);
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_adminErrorMessage(e, '删除题目失败'))),
+        );
+      }
+    }
   }
 
   void _showQuestionDialog(BuildContext context,
@@ -852,6 +1226,11 @@ class _QuestionManager extends StatelessWidget {
     final answerCtl = TextEditingController(text: question?['answer'] ?? 'A');
     final explanationCtl =
         TextEditingController(text: question?['explanation'] ?? '');
+    final tagsCtl = TextEditingController(
+      text: List<String>.from(
+        question?['tags'] ?? question?['知识点'] ?? const [],
+      ).join('、'),
+    );
     var questionType = question?['question_type'] ?? 'single';
     var dialogExamCategory = initialExamCategory;
     final questionChapterId = question?['chapter_id'];
@@ -868,6 +1247,7 @@ class _QuestionManager extends StatelessWidget {
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           title: Text(question == null ? '新增题目' : '编辑题目'),
@@ -993,6 +1373,15 @@ class _QuestionManager extends StatelessWidget {
                     maxLines: 2,
                     decoration: const InputDecoration(labelText: '解析'),
                   ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: tagsCtl,
+                    decoration: const InputDecoration(
+                      labelText: '知识点标签',
+                      hintText: '多个标签用顿号、逗号或空格分隔，如：内科学、高血压',
+                      prefixIcon: Icon(Icons.sell_outlined),
+                    ),
+                  ),
                   CheckboxListTile(
                     value: isRealExam,
                     onChanged: (value) =>
@@ -1023,10 +1412,17 @@ class _QuestionManager extends StatelessWidget {
                   'explanation': explanationCtl.text.trim(),
                   'difficulty': difficulty,
                   'is_real_exam': isRealExam,
-                  '知识点': question?['知识点'] ?? [],
+                  'tags': _parseTags(tagsCtl.text),
                 };
-                await onSave(data, id: question?['id']);
-                if (ctx.mounted) Navigator.pop(ctx);
+                try {
+                  await onSave(data, id: question?['id']);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } catch (e) {
+                  if (!ctx.mounted) return;
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text(_adminErrorMessage(e, '保存题目失败'))),
+                  );
+                }
               },
               child: const Text('保存'),
             ),
@@ -1041,6 +1437,15 @@ class _QuestionManager extends StatelessWidget {
       controller: controller,
       decoration: InputDecoration(labelText: '$label 选项'),
     );
+  }
+
+  List<String> _parseTags(String raw) {
+    return raw
+        .split(RegExp(r'[、,，\s]+'))
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toSet()
+        .toList();
   }
 
   String _questionTypeLabel(dynamic value) {
@@ -1079,12 +1484,16 @@ class _QuestionManager extends StatelessWidget {
 class _CourseManager extends StatelessWidget {
   final List<Map<String, dynamic>> courses;
   final List<Chapter> chapters;
+  final String? selectedExamCategory;
+  final ValueChanged<String?> onExamCategoryChanged;
   final Future<void> Function(Map<String, dynamic> data, {int? id}) onSave;
   final Future<void> Function(int id) onDelete;
 
   const _CourseManager({
     required this.courses,
     required this.chapters,
+    required this.selectedExamCategory,
+    required this.onExamCategoryChanged,
     required this.onSave,
     required this.onDelete,
   });
@@ -1095,14 +1504,43 @@ class _CourseManager extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       child: Column(
         children: [
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Text('课程管理',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.textPrimary)),
-              const Spacer(),
+              const Text(
+                '课程管理',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+              Text(
+                '共 ${courses.length} 门课程',
+                style: const TextStyle(color: AppTheme.textSecondary),
+              ),
+              SizedBox(
+                width: 180,
+                child: DropdownButtonFormField<String?>(
+                  value: selectedExamCategory,
+                  decoration: const InputDecoration(labelText: '考试类别'),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('全部考试'),
+                    ),
+                    ...AppConstants.examCategories.map(
+                      (item) => DropdownMenuItem<String?>(
+                        value: item,
+                        child: Text(item),
+                      ),
+                    ),
+                  ],
+                  onChanged: onExamCategoryChanged,
+                ),
+              ),
               ElevatedButton.icon(
                 onPressed: () => _showCourseDialog(context),
                 icon: const Icon(Icons.add_rounded),
@@ -1115,6 +1553,16 @@ class _CourseManager extends StatelessWidget {
             columns: const ['ID', '课程名称', '类型', '考试', '关联章节', '讲师', '状态', '操作'],
             flexes: const [1, 4, 1, 1, 2, 2, 1, 2],
           ),
+          if (courses.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 42),
+              child: Center(
+                child: Text(
+                  '暂无课程',
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+              ),
+            ),
           ...courses.map(
             (course) => _DataRowCard(
               cells: [
@@ -1122,7 +1570,7 @@ class _CourseManager extends StatelessWidget {
                 course['title'] ?? '',
                 course['course_type'] == 'live' ? '直播' : '录播',
                 course['exam_category'] ?? '',
-                _chapterName(course['chapter_id']),
+                _courseChapterText(course),
                 course['teacher'] ?? '',
                 course['is_published'] == true ? '已发布' : '未发布',
               ],
@@ -1135,7 +1583,7 @@ class _CourseManager extends StatelessWidget {
                 ),
                 IconButton(
                   tooltip: '删除',
-                  onPressed: () => onDelete(course['id']),
+                  onPressed: () => _confirmDeleteCourse(context, course),
                   icon: const Icon(Icons.delete_outline_rounded,
                       color: AppTheme.error),
                 ),
@@ -1145,6 +1593,42 @@ class _CourseManager extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmDeleteCourse(
+    BuildContext context,
+    Map<String, dynamic> course,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除课程'),
+        content: Text(
+          '确定删除课程「${course['title'] ?? course['id']}」吗？客户端将不再展示该课程。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      try {
+        await onDelete(course['id']);
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_adminErrorMessage(e, '删除课程失败'))),
+        );
+      }
+    }
   }
 
   void _showCourseDialog(BuildContext context, [Map<String, dynamic>? course]) {
@@ -1161,6 +1645,7 @@ class _CourseManager extends StatelessWidget {
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           title: Text(course == null ? '新增课程' : '编辑课程'),
@@ -1194,7 +1679,7 @@ class _CourseManager extends StatelessWidget {
                         child: DropdownButtonFormField<String>(
                           value: examCategory,
                           decoration: const InputDecoration(labelText: '考试类型'),
-                          items: const ['执业资格', '初级职称', '中级职称', '高级职称']
+                          items: AppConstants.examCategories
                               .map((item) => DropdownMenuItem(
                                   value: item, child: Text(item)))
                               .toList(),
@@ -1273,6 +1758,14 @@ class _CourseManager extends StatelessWidget {
                 onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
             ElevatedButton(
               onPressed: () async {
+                final lessonText = lessonCtl.text.trim();
+                final lessonCount = int.tryParse(lessonText);
+                if (lessonCount == null || lessonCount < 1) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('课时数必须是大于 0 的整数')),
+                  );
+                  return;
+                }
                 final data = {
                   'title': titleCtl.text.trim(),
                   'course_type': courseType,
@@ -1280,12 +1773,19 @@ class _CourseManager extends StatelessWidget {
                   'chapter_id': chapterId,
                   'teacher': teacherCtl.text.trim(),
                   'schedule': scheduleCtl.text.trim(),
-                  'lesson_count': int.tryParse(lessonCtl.text.trim()) ?? 1,
+                  'lesson_count': lessonCount,
                   'description': descCtl.text.trim(),
                   'is_published': isPublished,
                 };
-                await onSave(data, id: course?['id']);
-                if (ctx.mounted) Navigator.pop(ctx);
+                try {
+                  await onSave(data, id: course?['id']);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } catch (e) {
+                  if (!ctx.mounted) return;
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text(_adminErrorMessage(e, '保存课程失败'))),
+                  );
+                }
               },
               child: const Text('保存'),
             ),
@@ -1307,6 +1807,14 @@ class _CourseManager extends StatelessWidget {
       if (chapter.id == id) return chapter.name;
     }
     return '未关联';
+  }
+
+  String _courseChapterText(Map<String, dynamic> course) {
+    if (course['chapter_id'] == null) return '未关联';
+    final name = (course['chapter_name'] ?? '').toString().trim();
+    final count = course['chapter_question_count'] ?? 0;
+    final label = name.isNotEmpty ? name : _chapterName(course['chapter_id']);
+    return '$label · $count题';
   }
 }
 
@@ -1340,19 +1848,19 @@ class _UserManager extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Expanded(
-                child: Text(
-                  '用户管理',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-                ),
+              const Text(
+                '用户管理',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
               ),
               Text(
                 '共 ${users.length} 个用户',
                 style: const TextStyle(color: AppTheme.textSecondary),
               ),
-              const SizedBox(width: 12),
               ElevatedButton.icon(
                 onPressed: () => _showUserDialog(context),
                 icon: const Icon(Icons.person_add_alt_1_rounded),
@@ -1361,61 +1869,73 @@ class _UserManager extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              SizedBox(
-                width: 260,
-                child: TextField(
-                  controller: keywordCtl,
-                  decoration: const InputDecoration(
-                    labelText: '搜索手机号 / 姓名',
-                    prefixIcon: Icon(Icons.search_rounded),
-                  ),
-                  onSubmitted: (_) => onSearch(),
-                ),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                width: 180,
-                child: DropdownButtonFormField<String?>(
-                  value: selectedExamCategory,
-                  decoration: const InputDecoration(labelText: '考试类别'),
-                  items: [
-                    const DropdownMenuItem<String?>(
-                      value: null,
-                      child: Text('全部考试'),
-                    ),
-                    ...AppConstants.examCategories.map(
-                      (item) => DropdownMenuItem<String?>(
-                        value: item,
-                        child: Text(item),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 720;
+              final fieldWidth =
+                  compact ? constraints.maxWidth : constraints.maxWidth * 0.28;
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: fieldWidth.clamp(220.0, 300.0),
+                    child: TextField(
+                      controller: keywordCtl,
+                      decoration: const InputDecoration(
+                        labelText: '搜索手机号 / 姓名',
+                        prefixIcon: Icon(Icons.search_rounded),
                       ),
+                      onSubmitted: (_) => onSearch(),
                     ),
-                  ],
-                  onChanged: onExamCategoryChanged,
-                ),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                width: 150,
-                child: DropdownButtonFormField<bool?>(
-                  value: selectedActive,
-                  decoration: const InputDecoration(labelText: '账号状态'),
-                  items: const [
-                    DropdownMenuItem<bool?>(value: null, child: Text('全部状态')),
-                    DropdownMenuItem<bool?>(value: true, child: Text('启用')),
-                    DropdownMenuItem<bool?>(value: false, child: Text('停用')),
-                  ],
-                  onChanged: onActiveChanged,
-                ),
-              ),
-              const SizedBox(width: 12),
-              ElevatedButton.icon(
-                onPressed: onSearch,
-                icon: const Icon(Icons.search_rounded),
-                label: const Text('查询'),
-              ),
-            ],
+                  ),
+                  SizedBox(
+                    width: compact ? constraints.maxWidth : 180,
+                    child: DropdownButtonFormField<String?>(
+                      value: selectedExamCategory,
+                      decoration: const InputDecoration(labelText: '考试类别'),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('全部考试'),
+                        ),
+                        ...AppConstants.examCategories.map(
+                          (item) => DropdownMenuItem<String?>(
+                            value: item,
+                            child: Text(item),
+                          ),
+                        ),
+                      ],
+                      onChanged: onExamCategoryChanged,
+                    ),
+                  ),
+                  SizedBox(
+                    width: compact ? constraints.maxWidth : 150,
+                    child: DropdownButtonFormField<bool?>(
+                      value: selectedActive,
+                      decoration: const InputDecoration(labelText: '账号状态'),
+                      items: const [
+                        DropdownMenuItem<bool?>(
+                            value: null, child: Text('全部状态')),
+                        DropdownMenuItem<bool?>(value: true, child: Text('启用')),
+                        DropdownMenuItem<bool?>(
+                            value: false, child: Text('停用')),
+                      ],
+                      onChanged: onActiveChanged,
+                    ),
+                  ),
+                  SizedBox(
+                    width: compact ? constraints.maxWidth : null,
+                    child: ElevatedButton.icon(
+                      onPressed: onSearch,
+                      icon: const Icon(Icons.search_rounded),
+                      label: const Text('查询'),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 18),
           if (users.isEmpty)
@@ -1449,8 +1969,19 @@ class _UserManager extends StatelessWidget {
                   Switch(
                     value: active,
                     activeColor: AppTheme.success,
-                    onChanged: (value) =>
-                        onSave({'is_active': value}, id: user['id']),
+                    onChanged: (value) async {
+                      try {
+                        await onSave({'is_active': value}, id: user['id']);
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(_adminErrorMessage(e, '更新用户状态失败')),
+                            backgroundColor: AppTheme.error,
+                          ),
+                        );
+                      }
+                    },
                   ),
                   IconButton(
                     tooltip: '编辑用户',
@@ -1493,6 +2024,7 @@ class _UserManager extends StatelessWidget {
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           title: Text(isCreate ? '新增用户' : '编辑用户'),
@@ -1577,8 +2109,15 @@ class _UserManager extends StatelessWidget {
                   'is_active': isActive,
                   if (password.isNotEmpty) 'password': password,
                 };
-                await onSave(data, id: user?['id']);
-                if (ctx.mounted) Navigator.pop(ctx);
+                try {
+                  await onSave(data, id: user?['id']);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } catch (e) {
+                  if (!ctx.mounted) return;
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text(_adminErrorMessage(e, '保存用户失败'))),
+                  );
+                }
               },
               child: const Text('保存'),
             ),
@@ -1611,7 +2150,14 @@ class _UserManager extends StatelessWidget {
       ),
     );
     if (ok == true) {
-      await onDelete(user['id']);
+      try {
+        await onDelete(user['id']);
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_adminErrorMessage(e, '删除用户失败'))),
+        );
+      }
     }
   }
 }
@@ -1628,6 +2174,42 @@ class _DashboardManager extends StatelessWidget {
     final chapters =
         List<Map<String, dynamic>>.from(data['chapter_activity'] ?? const []);
     final accuracy = ((data['today_accuracy'] ?? 0) * 100).round();
+    final metrics = [
+      _MetricCard.compact(
+          label: '用户总数',
+          value: '${data['user_count'] ?? 0}',
+          color: AppTheme.primary),
+      _MetricCard.compact(
+          label: '今日活跃',
+          value: '${data['today_active_users'] ?? 0}',
+          color: AppTheme.accent),
+      _MetricCard.compact(
+          label: '今日做题',
+          value: '${data['today_questions'] ?? 0}',
+          color: AppTheme.success),
+      _MetricCard.compact(
+          label: '今日正确率', value: '$accuracy%', color: AppTheme.error),
+      _MetricCard.compact(
+          label: '错题复习',
+          value: '${data['wrong_review_count'] ?? 0}',
+          color: Colors.orange),
+      _MetricCard.compact(
+          label: '课程数量',
+          value: '${data['course_count'] ?? 0}',
+          color: AppTheme.primaryLight),
+      _MetricCard.compact(
+          label: '今日 AI 提问',
+          value: '${data['today_ai_questions'] ?? 0}',
+          color: Colors.purple),
+      _MetricCard.compact(
+          label: 'AI 会话数',
+          value: '${data['ai_session_count'] ?? 0}',
+          color: Colors.indigo),
+      _MetricCard.compact(
+          label: 'AI 收藏数',
+          value: '${data['ai_collection_count'] ?? 0}',
+          color: Colors.teal),
+    ];
     return GlassCard(
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -1638,41 +2220,7 @@ class _DashboardManager extends StatelessWidget {
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              _MetricCard(
-                  label: '用户总数',
-                  value: '${data['user_count'] ?? 0}',
-                  color: AppTheme.primary),
-              const SizedBox(width: 12),
-              _MetricCard(
-                  label: '今日活跃',
-                  value: '${data['today_active_users'] ?? 0}',
-                  color: AppTheme.accent),
-              const SizedBox(width: 12),
-              _MetricCard(
-                  label: '今日做题',
-                  value: '${data['today_questions'] ?? 0}',
-                  color: AppTheme.success),
-              const SizedBox(width: 12),
-              _MetricCard(
-                  label: '今日正确率', value: '$accuracy%', color: AppTheme.error),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _MetricCard(
-                  label: '错题复习',
-                  value: '${data['wrong_review_count'] ?? 0}',
-                  color: Colors.orange),
-              const SizedBox(width: 12),
-              _MetricCard(
-                  label: '课程数量',
-                  value: '${data['course_count'] ?? 0}',
-                  color: AppTheme.primaryLight),
-            ],
-          ),
+          Wrap(spacing: 10, runSpacing: 10, children: metrics),
           const SizedBox(height: 22),
           const Text('考试分类用户分布',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
@@ -1729,28 +2277,39 @@ class _DataHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppTheme.primary.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          for (var i = 0; i < columns.length; i++)
-            Expanded(
-              flex: flexes[i],
-              child: Text(
-                columns[i],
-                style: const TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth < 820 ? 820.0 : constraints.maxWidth;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: width,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  for (var i = 0; i < columns.length; i++)
+                    Expanded(
+                      flex: flexes[i],
+                      child: Text(
+                        columns[i],
+                        style: const TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1768,30 +2327,43 @@ class _DataRowCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppTheme.divider)),
-      ),
-      child: Row(
-        children: [
-          for (var i = 0; i < cells.length; i++)
-            Expanded(
-              flex: flexes[i],
-              child: Text(
-                cells[i],
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: AppTheme.textPrimary, fontSize: 13, height: 1.35),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth < 820 ? 820.0 : constraints.maxWidth;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: width,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppTheme.divider)),
+              ),
+              child: Row(
+                children: [
+                  for (var i = 0; i < cells.length; i++)
+                    Expanded(
+                      flex: flexes[i],
+                      child: Text(
+                        cells[i],
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 13,
+                            height: 1.35),
+                      ),
+                    ),
+                  Expanded(
+                    flex: 2,
+                    child: Row(children: actions),
+                  ),
+                ],
               ),
             ),
-          Expanded(
-            flex: 2,
-            child: Row(children: actions),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

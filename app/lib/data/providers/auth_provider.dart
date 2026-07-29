@@ -19,7 +19,9 @@ class AuthProvider extends ChangeNotifier {
   Future<void> checkAuth() async {
     await _api.loadToken();
     if (!_api.hasToken) {
+      _user = null;
       _isLoggedIn = false;
+      _error = null;
       notifyListeners();
       return;
     }
@@ -99,6 +101,7 @@ class AuthProvider extends ChangeNotifier {
     required String phone,
     required String smsCode,
     required String password,
+    required String targetExam,
     String? fullName,
   }) async {
     try {
@@ -111,6 +114,7 @@ class AuthProvider extends ChangeNotifier {
         'phone': phone,
         'sms_code': smsCode,
         'password': password,
+        'target_exam': targetExam,
         if (fullName != null) 'full_name': fullName,
       });
 
@@ -128,12 +132,11 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<String?> sendSmsCode(String phone) async {
+  Future<String?> sendSmsCode(String phone, {String purpose = 'login'}) async {
     try {
-      _isLoading = true;
       _error = null;
       notifyListeners();
-      final res = await _api.sendSmsCode(phone);
+      final res = await _api.sendSmsCode(phone, purpose: purpose);
       return res.data['code']?.toString();
     } on DioException catch (e) {
       _error = _extractErrorMessage(e, '验证码发送失败');
@@ -142,7 +145,6 @@ class AuthProvider extends ChangeNotifier {
       _error = '验证码发送失败';
       return null;
     } finally {
-      _isLoading = false;
       notifyListeners();
     }
   }
@@ -152,6 +154,25 @@ class AuthProvider extends ChangeNotifier {
     _user = null;
     _isLoggedIn = false;
     notifyListeners();
+  }
+
+  Future<bool> updateTargetExam(String targetExam) async {
+    if (!_isLoggedIn) return false;
+    try {
+      _error = null;
+      final res = await _api.updateMe({'target_exam': targetExam});
+      _user = User.fromJson(res.data);
+      notifyListeners();
+      return true;
+    } on DioException catch (e) {
+      _error = _extractErrorMessage(e, '考试分类保存失败');
+      notifyListeners();
+      return false;
+    } catch (_) {
+      _error = '考试分类保存失败';
+      notifyListeners();
+      return false;
+    }
   }
 
   void clearError() {

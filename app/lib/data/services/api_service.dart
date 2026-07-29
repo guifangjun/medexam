@@ -100,8 +100,11 @@ class ApiService {
     return _dio.post(ApiConstants.register, data: data);
   }
 
-  Future<Response> sendSmsCode(String phone) async {
-    return _dio.post('/api/auth/sms-code', data: {'phone': phone});
+  Future<Response> sendSmsCode(String phone, {String purpose = 'login'}) async {
+    return _dio.post('/api/auth/sms-code', data: {
+      'phone': phone,
+      'purpose': purpose,
+    });
   }
 
   Future<Response> login(String username, String password) async {
@@ -168,6 +171,7 @@ class ApiService {
 
   Future<Response> getPracticeQuestions({
     int? chapterId,
+    List<int>? questionIds,
     String? examCategory,
     int? difficulty,
     String mode = 'chapter',
@@ -176,6 +180,8 @@ class ApiService {
   }) async {
     return _dio.get(ApiConstants.practice, queryParameters: {
       if (chapterId != null) 'chapter_id': chapterId,
+      if (questionIds != null && questionIds.isNotEmpty)
+        'question_ids': questionIds.join(','),
       if (examCategory != null && examCategory.isNotEmpty)
         'exam_category': examCategory,
       if (difficulty != null) 'difficulty': difficulty,
@@ -190,7 +196,14 @@ class ApiService {
     String? examCategory,
   }) async {
     return _dio.get(ApiConstants.exam, queryParameters: {
-      'question_count': count,
+      'count': count,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+    });
+  }
+
+  Future<Response> getExamQuestionCount({String? examCategory}) async {
+    return _dio.get(ApiConstants.examCount, queryParameters: {
       if (examCategory != null && examCategory.isNotEmpty)
         'exam_category': examCategory,
     });
@@ -204,10 +217,16 @@ class ApiService {
     return _dio.post(ApiConstants.examSubmit, data: data);
   }
 
-  Future<Response> getExamAttempts({int skip = 0, int limit = 20}) async {
+  Future<Response> getExamAttempts({
+    int skip = 0,
+    int limit = 20,
+    String? examCategory,
+  }) async {
     return _dio.get(ApiConstants.examAttempts, queryParameters: {
       'skip': skip,
       'limit': limit,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
     });
   }
 
@@ -243,10 +262,15 @@ class ApiService {
     return _dio.delete('${ApiConstants.adminQuestions}/$questionId');
   }
 
-  Future<Response> getAdminCourses({String? courseType}) async {
+  Future<Response> getAdminCourses({
+    String? courseType,
+    String? examCategory,
+  }) async {
     return _dio.get(ApiConstants.adminCourses, queryParameters: {
       if (courseType != null && courseType.isNotEmpty)
         'course_type': courseType,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
     });
   }
 
@@ -307,10 +331,15 @@ class ApiService {
 
   Future<Response> sendChat({
     required String content,
+    String? sessionId,
+    String? examCategory,
     int? relatedQuestionId,
   }) async {
     return _dio.post(ApiConstants.chat, data: {
       'content': content,
+      if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
       if (relatedQuestionId != null) 'related_question_id': relatedQuestionId,
     });
   }
@@ -322,12 +351,42 @@ class ApiService {
     });
   }
 
-  Future<Response> getChatSessions() async {
-    return _dio.get(ApiConstants.aiSessions);
+  Future<Response> getChatSessions({String? examCategory}) async {
+    return _dio.get(ApiConstants.aiSessions, queryParameters: {
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+    });
+  }
+
+  Future<Response> getChatCollections({
+    int limit = 50,
+    String? examCategory,
+  }) async {
+    return _dio.get(ApiConstants.aiCollections, queryParameters: {
+      'limit': limit,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+    });
   }
 
   Future<Response> collectMessage(int messageId) async {
     return _dio.post('${ApiConstants.ai}/$messageId/collect');
+  }
+
+  Future<Response> getAIStudyAdvice(Map<String, dynamic> data) async {
+    return _dio.post('${ApiConstants.ai}/study-advice', data: data);
+  }
+
+  Future<Response> getAIWrongExplain(Map<String, dynamic> data) async {
+    return _dio.post('${ApiConstants.ai}/wrong-explain', data: data);
+  }
+
+  Future<Response> getAIExamReport(Map<String, dynamic> data) async {
+    return _dio.post('${ApiConstants.ai}/exam-report', data: data);
+  }
+
+  Future<Response> getAILearningPath(Map<String, dynamic> data) async {
+    return _dio.post('${ApiConstants.ai}/learning-path', data: data);
   }
 
   // ============ Study ============
@@ -336,18 +395,48 @@ class ApiService {
     return _dio.post(ApiConstants.studyPlan, data: data);
   }
 
-  Future<Response> getStudyPlans() async {
-    return _dio.get(ApiConstants.studyPlan);
+  Future<Response> getStudyPlans({String? examCategory}) async {
+    return _dio.get(ApiConstants.studyPlan, queryParameters: {
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+    });
   }
 
-  Future<Response> getTodayTask() async {
-    return _dio.get(ApiConstants.todayTask);
+  Future<Response> getTodayTask({String? examCategory}) async {
+    return _dio.get(ApiConstants.todayTask, queryParameters: {
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+    });
   }
 
-  Future<Response> getWrongQuestions({int skip = 0, int limit = 20}) async {
+  Future<Response> getWrongQuestions({
+    int skip = 0,
+    int limit = 20,
+    String? examCategory,
+  }) async {
     return _dio.get(ApiConstants.wrong, queryParameters: {
       'skip': skip,
       'limit': limit,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+    });
+  }
+
+  Future<Response> getWrongReviewCalendar({
+    int days = 14,
+    String? examCategory,
+  }) async {
+    return _dio.get(ApiConstants.wrongCalendar, queryParameters: {
+      'days': days,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+    });
+  }
+
+  Future<Response> getWrongReviewPlan({String? examCategory}) async {
+    return _dio.get(ApiConstants.wrongReviewPlan, queryParameters: {
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
     });
   }
 
@@ -363,8 +452,11 @@ class ApiService {
     });
   }
 
-  Future<Response> getTodayStats() async {
-    return _dio.get(ApiConstants.statsToday);
+  Future<Response> getTodayStats({String? examCategory}) async {
+    return _dio.get(ApiConstants.statsToday, queryParameters: {
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+    });
   }
 
   Future<Response> getStudyPrescription({String? examCategory}) async {
@@ -374,7 +466,10 @@ class ApiService {
     });
   }
 
-  Future<Response> getStatsOverview() async {
-    return _dio.get(ApiConstants.statsOverview);
+  Future<Response> getStatsOverview({String? examCategory}) async {
+    return _dio.get(ApiConstants.statsOverview, queryParameters: {
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+    });
   }
 }

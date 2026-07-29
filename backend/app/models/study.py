@@ -26,6 +26,7 @@ class StudyPlan(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     title = Column(String(100), nullable=False)
     plan_type = Column(String(20), default="daily")  # daily/weekly/custom
+    exam_category = Column(String(50), nullable=True)
     target_chapters = Column(JSON, default=list)  # 目标章节列表
     daily_questions = Column(Integer, default=20)
     start_date = Column(DateTime, nullable=False)
@@ -41,6 +42,7 @@ class DailyTask(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     plan_id = Column(Integer, ForeignKey("study_plans.id"), nullable=True)
+    exam_category = Column(String(50), nullable=False, default="执业资格")
     date = Column(String(10), nullable=False)  # YYYY-MM-DD
     target_questions = Column(Integer, default=20)
     completed_questions = Column(Integer, default=0)

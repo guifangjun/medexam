@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../data/providers/ai_chat_provider.dart';
+import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/question_provider.dart';
+import '../../../data/providers/study_provider.dart';
 import '../../../data/services/api_service.dart';
 import '../../widgets/app_glass.dart';
 import '../practice/practice_screen.dart';
@@ -262,7 +265,7 @@ class _CourseCard extends StatelessWidget {
               const SizedBox(width: 14),
               _Meta(
                 icon: Icons.quiz_rounded,
-                text: course.chapterId == null ? '未关联题库' : '已关联题库',
+                text: course.questionBankText,
               ),
             ],
           ),
@@ -300,10 +303,22 @@ class _CourseCard extends StatelessWidget {
   }
 }
 
-class _CourseDetailScreen extends StatelessWidget {
+class _CourseDetailScreen extends StatefulWidget {
   final _Course course;
 
   const _CourseDetailScreen({required this.course});
+
+  @override
+  State<_CourseDetailScreen> createState() => _CourseDetailScreenState();
+}
+
+class _CourseDetailScreenState extends State<_CourseDetailScreen> {
+  String? _loadingMode;
+
+  _Course get course => widget.course;
+
+  bool _isLoading(String mode) => _loadingMode == mode;
+  bool get _isBusy => _loadingMode != null;
 
   @override
   Widget build(BuildContext context) {
@@ -371,6 +386,55 @@ class _CourseDetailScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(course.time,
                       style: const TextStyle(color: AppTheme.textSecondary)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.quiz_rounded,
+                          size: 17, color: AppTheme.primary),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          course.chapterId == null
+                              ? '关联题库：暂未关联'
+                              : '关联题库：${course.chapterName} · ${course.chapterQuestionCount} 题',
+                          style: const TextStyle(
+                              color: AppTheme.textSecondary, height: 1.4),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (course.chapterId != null) ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: _isBusy || course.chapterQuestionCount <= 0
+                              ? null
+                              : () => _startPractice(
+                                    context,
+                                    mode: 'chapter',
+                                    title: '对应题库',
+                                  ),
+                          icon:
+                              const Icon(Icons.library_books_rounded, size: 18),
+                          label: const Text('查看对应题库'),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: _isBusy || course.chapterQuestionCount <= 0
+                              ? null
+                              : () => _startPractice(
+                                    context,
+                                    mode: 'chapter',
+                                    title: '课后练习',
+                                  ),
+                          icon: const Icon(Icons.school_rounded, size: 18),
+                          label: const Text('课后练习'),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   Text(
                     course.description.isEmpty
@@ -399,9 +463,14 @@ class _CourseDetailScreen extends StatelessWidget {
               title: '课前摸底',
               subtitle: course.chapterId == null
                   ? '该课程暂未关联章节，无法生成课前练习'
-                  : '先做未做题，快速判断这节课该重点听什么',
+                  : course.chapterQuestionCount <= 0
+                      ? '关联章节暂无题目，请先在后台补充题库'
+                      : '先做未做题，快速判断这节课该重点听什么',
               buttonText: '开始课前练习',
-              enabled: course.chapterId != null,
+              enabled: !_isBusy &&
+                  course.chapterId != null &&
+                  course.chapterQuestionCount > 0,
+              isLoading: _isLoading('unanswered'),
               onTap: () =>
                   _startPractice(context, mode: 'unanswered', title: '课前摸底'),
             ),
@@ -413,16 +482,8 @@ class _CourseDetailScreen extends StatelessWidget {
                   ? '按直播安排跟学，课后马上做题巩固'
                   : '完成 ${course.lessons}，建议边听边记录错题知识点',
               buttonText: course.isLive ? '查看直播安排' : '开始学习课程',
-              enabled: true,
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(course.isLive
-                        ? '直播安排：${course.time}'
-                        : '课程播放功能将在下一阶段接入'),
-                  ),
-                );
-              },
+              enabled: !_isBusy,
+              onTap: () => _showCourseStudySheet(context),
             ),
             const SizedBox(height: 10),
             _CourseLoopStep(
@@ -430,9 +491,14 @@ class _CourseDetailScreen extends StatelessWidget {
               title: '课后练习',
               subtitle: course.chapterId == null
                   ? '该课程暂未关联章节题库'
-                  : '围绕关联章节刷题，形成“课程 → 练习 → 错题复习”',
+                  : course.chapterQuestionCount <= 0
+                      ? '关联章节暂无题目，暂不能开始课后练习'
+                      : '围绕关联章节刷题，形成“课程 → 练习 → 错题复习”',
               buttonText: '开始课后练习',
-              enabled: course.chapterId != null,
+              enabled: !_isBusy &&
+                  course.chapterId != null &&
+                  course.chapterQuestionCount > 0,
+              isLoading: _isLoading('chapter'),
               onTap: () =>
                   _startPractice(context, mode: 'chapter', title: '课后练习'),
             ),
@@ -440,9 +506,12 @@ class _CourseDetailScreen extends StatelessWidget {
             _CourseLoopStep(
               index: '4',
               title: '错题复习',
-              subtitle: '课后练习答错的题会进入错题本，后续可集中复习',
-              buttonText: '复习错题',
-              enabled: true,
+              subtitle: course.chapterId == null
+                  ? '该课程未关联章节，无法限定课程错题'
+                  : '只复习该课程关联章节下尚未掌握的错题',
+              buttonText: '复习课程错题',
+              enabled: !_isBusy && course.chapterId != null,
+              isLoading: _isLoading('wrong'),
               onTap: () =>
                   _startPractice(context, mode: 'wrong', title: '课程错题复习'),
             ),
@@ -457,22 +526,263 @@ class _CourseDetailScreen extends StatelessWidget {
     required String mode,
     required String title,
   }) async {
-    if (course.chapterId == null && mode != 'wrong') {
+    if (course.chapterId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('该课程暂未关联章节题库')),
       );
       return;
     }
+    if (mode != 'wrong' && course.chapterQuestionCount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('该章节暂无题目，请先在后台补充题库')),
+      );
+      return;
+    }
+    if (_isBusy) return;
+    setState(() => _loadingMode = mode);
     final provider = context.read<QuestionProvider>();
-    await provider.loadPracticeQuestions(
-      chapterId: mode == 'wrong' ? null : course.chapterId,
-      mode: mode,
-      title: '${course.title} · $title',
-    );
-    if (!context.mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const PracticeScreen()),
+    final originalCategory = provider.examCategory;
+    try {
+      provider.setExamCategory(course.examCategory);
+      await provider.loadPracticeQuestions(
+        chapterId: course.chapterId,
+        mode: mode,
+        title: '${course.title} · $title',
+      );
+      if (!context.mounted) return;
+      if (provider.currentQuestions.isEmpty) {
+        final message = switch (mode) {
+          'wrong' => '该课程关联章节暂无可复习错题',
+          'unanswered' => '该课程关联章节暂无未做题，可以直接进行课后练习',
+          _ => provider.error ?? '该课程关联章节暂无题目',
+        };
+        if (mounted) {
+          setState(() => _loadingMode = null);
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            action: mode == 'unanswered' && course.chapterQuestionCount > 0
+                ? SnackBarAction(
+                    label: '课后练习',
+                    onPressed: () => _startPractice(
+                      context,
+                      mode: 'chapter',
+                      title: '课后练习',
+                    ),
+                  )
+                : null,
+          ),
+        );
+        return;
+      }
+      if (originalCategory != course.examCategory) {
+        final study = context.read<StudyProvider>();
+        study.loadStudyPlans(examCategory: course.examCategory);
+        study.loadTodayTask(examCategory: course.examCategory);
+        study.loadTodayStats(examCategory: course.examCategory);
+        study.loadPrescription(examCategory: course.examCategory);
+        study.loadWrongReviewCalendar(examCategory: course.examCategory);
+        study.loadWrongReviewPlan(examCategory: course.examCategory);
+        context
+            .read<AIChatProvider>()
+            .clearStudyAdvice(exceptExamCategory: course.examCategory);
+        context
+            .read<AIChatProvider>()
+            .clearLearningPath(exceptExamCategory: course.examCategory);
+        final saved = await context
+            .read<AuthProvider>()
+            .updateTargetExam(course.examCategory);
+        if (!saved && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                context.read<AuthProvider>().error ?? '考试分类已切换，但保存到账号失败',
+              ),
+              backgroundColor: AppTheme.error,
+            ),
+          );
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已切换到「${course.examCategory}」课程题库')),
+        );
+      }
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const PracticeScreen()),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loadingMode = null);
+      }
+    }
+  }
+
+  void _showCourseStudySheet(BuildContext context) {
+    final parentContext = context;
+    final lessonCount = course.lessonCount.clamp(1, 99).toInt();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.72,
+          minChildSize: 0.42,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (context, scrollController) {
+            return ListView(
+              controller: scrollController,
+              padding: const EdgeInsets.all(22),
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppTheme.divider,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: course.color.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: Icon(course.icon, color: course.color),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            course.isLive ? '直播学习安排' : '录播课程学习',
+                            style: const TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(course.title,
+                              style: const TextStyle(
+                                  color: AppTheme.textSecondary)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withOpacity(0.07),
+                    borderRadius: BorderRadius.circular(14),
+                    border:
+                        Border.all(color: AppTheme.primary.withOpacity(0.12)),
+                  ),
+                  child: Text(
+                    course.isLive
+                        ? '直播时间：${course.time.isEmpty ? '请以后台课程安排为准' : course.time}\n建议提前完成课前摸底，直播后立即做课后练习。'
+                        : '学习方式：${course.time.isEmpty ? '随到随学' : course.time}\n建议按讲次学习，每讲结束后记录 1 个易错点。',
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      height: 1.55,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  '课程目录',
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ...List.generate(lessonCount, (index) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(13),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(13),
+                      border: Border.all(color: AppTheme.divider),
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 15,
+                          backgroundColor: course.color.withOpacity(0.12),
+                          child: Text(
+                            '${index + 1}',
+                            style: TextStyle(
+                              color: course.color,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            course.isLive
+                                ? '第 ${index + 1} 场：直播重点串讲'
+                                : '第 ${index + 1} 讲：核心考点精讲',
+                            style: const TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          course.isLive
+                              ? Icons.event_available_rounded
+                              : Icons.play_circle_outline_rounded,
+                          color: AppTheme.textHint,
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+                const SizedBox(height: 14),
+                SizedBox(
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: course.chapterId == null ||
+                            course.chapterQuestionCount <= 0
+                        ? null
+                        : () {
+                            Navigator.pop(sheetContext);
+                            _startPractice(
+                              parentContext,
+                              mode: 'chapter',
+                              title: '课后练习',
+                            );
+                          },
+                    icon: const Icon(Icons.quiz_rounded),
+                    label: Text(
+                      course.chapterId == null ? '未关联题库，暂不能练习' : '学完去做课后练习',
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -483,6 +793,7 @@ class _CourseLoopStep extends StatelessWidget {
   final String subtitle;
   final String buttonText;
   final bool enabled;
+  final bool isLoading;
   final VoidCallback onTap;
 
   const _CourseLoopStep({
@@ -491,6 +802,7 @@ class _CourseLoopStep extends StatelessWidget {
     required this.subtitle,
     required this.buttonText,
     required this.enabled,
+    this.isLoading = false,
     required this.onTap,
   });
 
@@ -546,7 +858,13 @@ class _CourseLoopStep extends StatelessWidget {
             width: double.infinity,
             child: OutlinedButton(
               onPressed: enabled ? onTap : null,
-              child: Text(buttonText),
+              child: isLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(buttonText),
             ),
           ),
         ],
@@ -612,6 +930,7 @@ class _Meta extends StatelessWidget {
 class _Course {
   final int id;
   final String title;
+  final String examCategory;
   final String teacher;
   final String time;
   final String lessons;
@@ -619,13 +938,17 @@ class _Course {
   final String typeLabel;
   final String level;
   final int? chapterId;
+  final String chapterName;
+  final int chapterQuestionCount;
   final IconData icon;
   final Color color;
   final bool isLive;
+  final int lessonCount;
 
   const _Course({
     required this.id,
     required this.title,
+    required this.examCategory,
     required this.teacher,
     required this.time,
     required this.lessons,
@@ -633,9 +956,12 @@ class _Course {
     required this.typeLabel,
     required this.level,
     required this.chapterId,
+    required this.chapterName,
+    required this.chapterQuestionCount,
     required this.icon,
     required this.color,
     required this.isLive,
+    required this.lessonCount,
   });
 
   factory _Course.fromJson(Map<String, dynamic> json) {
@@ -644,6 +970,7 @@ class _Course {
     return _Course(
       id: json['id'],
       title: json['title'] ?? '',
+      examCategory: json['exam_category'] ?? '',
       teacher: '主讲：${json['teacher'] ?? ''}',
       time: json['schedule'] ?? '',
       lessons: isLive ? '直播课' : '${json['lesson_count'] ?? 0} 讲',
@@ -651,9 +978,18 @@ class _Course {
       typeLabel: isLive ? '直播' : '录播',
       level: json['exam_category'] ?? '',
       chapterId: json['chapter_id'],
+      chapterName: json['chapter_name'] ?? '未命名章节',
+      chapterQuestionCount: json['chapter_question_count'] ?? 0,
       icon: isLive ? Icons.live_tv_rounded : Icons.video_library_rounded,
       color: isLive ? AppTheme.error : AppTheme.primary,
       isLive: isLive,
+      lessonCount: json['lesson_count'] ?? 1,
     );
+  }
+
+  String get questionBankText {
+    if (chapterId == null) return '未关联题库';
+    if (chapterQuestionCount <= 0) return '$chapterName · 暂无题目';
+    return '$chapterName · $chapterQuestionCount题';
   }
 }

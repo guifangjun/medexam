@@ -1,3 +1,5 @@
+import '../../core/constants/api_constants.dart';
+
 class User {
   final int id;
   final String username;
@@ -32,7 +34,7 @@ class User {
       email: json['email'] ?? '',
       phone: json['phone'],
       fullName: json['full_name'],
-      targetExam: json['target_exam'] ?? '执业医师',
+      targetExam: AppConstants.normalizeExamCategory(json['target_exam']),
       targetDate: json['target_date'] != null
           ? DateTime.parse(json['target_date'])
           : null,

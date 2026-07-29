@@ -26,9 +26,44 @@ class WrongReasonUpdate(BaseModel):
     wrong_reason: str
 
 
+class WrongReviewCalendarDay(BaseModel):
+    date: str
+    due_count: int
+    overdue_count: int = 0
+    mastered_count: int = 0
+
+
+class WrongReviewCalendarResponse(BaseModel):
+    today: str
+    total_wrong: int
+    due_today: int
+    overdue: int
+    mastered: int
+    upcoming: List[WrongReviewCalendarDay] = []
+
+
+class WrongReviewFocusItem(BaseModel):
+    label: str
+    count: int
+    advice: str
+
+
+class WrongReviewPlanResponse(BaseModel):
+    title: str
+    summary: str
+    due_today: int
+    overdue: int
+    mastered: int
+    suggested_count: int
+    focus_tags: List[WrongReviewFocusItem] = []
+    focus_reasons: List[WrongReviewFocusItem] = []
+    actions: List[str] = []
+
+
 class StudyPlanBase(BaseModel):
     title: str
     plan_type: str = "daily"
+    exam_category: Optional[str] = None
     target_chapters: List[int] = []
     daily_questions: int = Field(default=20, ge=1, le=500)
     start_date: datetime
@@ -52,6 +87,7 @@ class StudyPlanResponse(StudyPlanBase):
 class DailyTaskResponse(BaseModel):
     id: int
     plan_id: Optional[int]
+    exam_category: str = "执业资格"
     date: str
     target_questions: int
     completed_questions: int
@@ -103,3 +139,4 @@ class StatsOverview(BaseModel):
     total_study_time: int
     current_streak: int
     subject_stats: dict
+    accuracy_trend: List[dict] = Field(default_factory=list)

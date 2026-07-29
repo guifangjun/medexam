@@ -8,10 +8,16 @@ class StudyProvider extends ChangeNotifier {
   List<StudyPlan> _plans = [];
   DailyTask? _todayTask;
   List<WrongQuestion> _wrongQuestions = [];
+  WrongReviewCalendar? _wrongReviewCalendar;
+  WrongReviewPlan? _wrongReviewPlan;
   StudyStats? _todayStats;
   StatsOverview? _overview;
   StudyPrescription? _prescription;
   bool _isLoading = false;
+  bool _isLoadingMoreWrongQuestions = false;
+  bool _hasMoreWrongQuestions = true;
+  String? _wrongQuestionExamCategory;
+  static const int _wrongQuestionPageSize = 20;
   String? _error;
 
   List<StudyPlan> get plans => _plans;
@@ -33,18 +39,24 @@ class StudyProvider extends ChangeNotifier {
   }
 
   List<WrongQuestion> get wrongQuestions => _wrongQuestions;
+  WrongReviewCalendar? get wrongReviewCalendar => _wrongReviewCalendar;
+  WrongReviewPlan? get wrongReviewPlan => _wrongReviewPlan;
   StudyStats? get todayStats => _todayStats;
   StatsOverview? get overview => _overview;
   StudyPrescription? get prescription => _prescription;
   bool get isLoading => _isLoading;
+  bool get isLoadingMoreWrongQuestions => _isLoadingMoreWrongQuestions;
+  bool get hasMoreWrongQuestions => _hasMoreWrongQuestions;
+  int get wrongQuestionTotalCount =>
+      _wrongReviewCalendar?.totalWrong ?? _wrongQuestions.length;
   String? get error => _error;
 
-  Future<void> loadTodayTask() async {
+  Future<void> loadTodayTask({String? examCategory}) async {
     try {
       _isLoading = true;
       notifyListeners();
 
-      final res = await _api.getTodayTask();
+      final res = await _api.getTodayTask(examCategory: examCategory);
       _todayTask = DailyTask.fromJson(res.data);
       _error = null;
     } catch (e) {
@@ -55,12 +67,12 @@ class StudyProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> loadStudyPlans() async {
+  Future<void> loadStudyPlans({String? examCategory}) async {
     try {
       _isLoading = true;
       notifyListeners();
 
-      final res = await _api.getStudyPlans();
+      final res = await _api.getStudyPlans(examCategory: examCategory);
       _plans =
           (res.data as List).map((json) => StudyPlan.fromJson(json)).toList();
       _error = null;
@@ -78,6 +90,7 @@ class StudyProvider extends ChangeNotifier {
     required DateTime endDate,
     List<int> targetChapters = const [],
     int dailyQuestions = 20,
+    String? examCategory,
   }) async {
     try {
       _isLoading = true;
@@ -90,10 +103,12 @@ class StudyProvider extends ChangeNotifier {
         'end_date': endDate.toIso8601String(),
         'target_chapters': targetChapters,
         'daily_questions': dailyQuestions,
+        if (examCategory != null && examCategory.isNotEmpty)
+          'exam_category': examCategory,
       });
 
-      await loadStudyPlans();
-      await loadTodayTask();
+      await loadStudyPlans(examCategory: examCategory);
+      await loadTodayTask(examCategory: examCategory);
       return true;
     } catch (e) {
       _error = '创建学习计划失败';
@@ -104,22 +119,63 @@ class StudyProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> loadWrongQuestions({int skip = 0, int limit = 20}) async {
+  Future<void> loadWrongQuestions({
+    int skip = 0,
+    int limit = _wrongQuestionPageSize,
+    bool append = false,
+    String? examCategory,
+  }) async {
     try {
-      _isLoading = true;
+      if (!append) {
+        _wrongQuestionExamCategory = examCategory;
+      }
+      final effectiveExamCategory = examCategory ?? _wrongQuestionExamCategory;
+      if (append) {
+        _isLoadingMoreWrongQuestions = true;
+      } else {
+        _isLoading = true;
+      }
       notifyListeners();
 
-      final res = await _api.getWrongQuestions(skip: skip, limit: limit);
-      _wrongQuestions = (res.data as List)
+      final res = await _api.getWrongQuestions(
+        skip: skip,
+        limit: limit,
+        examCategory: effectiveExamCategory,
+      );
+      final page = (res.data as List)
           .map((json) => WrongQuestion.fromJson(json))
           .toList();
+      if (append) {
+        final existingIds = _wrongQuestions.map((item) => item.id).toSet();
+        _wrongQuestions = [
+          ..._wrongQuestions,
+          ...page.where((item) => !existingIds.contains(item.id)),
+        ];
+      } else {
+        _wrongQuestions = page;
+        await loadWrongReviewCalendar(examCategory: effectiveExamCategory);
+        await loadWrongReviewPlan(examCategory: effectiveExamCategory);
+      }
+      final total = _wrongReviewCalendar?.totalWrong;
+      _hasMoreWrongQuestions =
+          total == null ? page.length >= limit : _wrongQuestions.length < total;
       _error = null;
     } catch (e) {
       _error = '加载错题本失败';
     } finally {
       _isLoading = false;
+      _isLoadingMoreWrongQuestions = false;
       notifyListeners();
     }
+  }
+
+  Future<void> loadMoreWrongQuestions() async {
+    if (_isLoadingMoreWrongQuestions || !_hasMoreWrongQuestions) return;
+    await loadWrongQuestions(
+      skip: _wrongQuestions.length,
+      append: true,
+      examCategory: _wrongQuestionExamCategory,
+    );
   }
 
   Future<bool> updateWrongReason(int wrongId, String reason) async {
@@ -127,7 +183,7 @@ class StudyProvider extends ChangeNotifier {
       await _api.updateWrongReason(wrongId, reason);
       final index = _wrongQuestions.indexWhere((w) => w.id == wrongId);
       if (index != -1) {
-        await loadWrongQuestions();
+        await loadWrongQuestions(examCategory: _wrongQuestionExamCategory);
       }
       return true;
     } catch (e) {
@@ -139,7 +195,7 @@ class StudyProvider extends ChangeNotifier {
   Future<bool> reviewWrongQuestion(int wrongId, bool isCorrect) async {
     try {
       await _api.reviewWrongQuestion(wrongId, isCorrect);
-      await loadWrongQuestions();
+      await loadWrongQuestions(examCategory: _wrongQuestionExamCategory);
       return true;
     } catch (e) {
       _error = '复习记录失败';
@@ -147,9 +203,35 @@ class StudyProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> loadTodayStats() async {
+  Future<void> loadWrongReviewCalendar({
+    int days = 14,
+    String? examCategory,
+  }) async {
     try {
-      final res = await _api.getTodayStats();
+      final res = await _api.getWrongReviewCalendar(
+        days: days,
+        examCategory: examCategory,
+      );
+      _wrongReviewCalendar = WrongReviewCalendar.fromJson(res.data);
+      notifyListeners();
+    } catch (e) {
+      // 错题日历失败不影响错题本列表。
+    }
+  }
+
+  Future<void> loadWrongReviewPlan({String? examCategory}) async {
+    try {
+      final res = await _api.getWrongReviewPlan(examCategory: examCategory);
+      _wrongReviewPlan = WrongReviewPlan.fromJson(res.data);
+      notifyListeners();
+    } catch (e) {
+      // 智能复盘失败不影响错题本列表。
+    }
+  }
+
+  Future<void> loadTodayStats({String? examCategory}) async {
+    try {
+      final res = await _api.getTodayStats(examCategory: examCategory);
       _todayStats = StudyStats.fromJson(res.data);
       notifyListeners();
     } catch (e) {
@@ -167,12 +249,12 @@ class StudyProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> loadStatsOverview() async {
+  Future<void> loadStatsOverview({String? examCategory}) async {
     try {
       _isLoading = true;
       notifyListeners();
 
-      final res = await _api.getStatsOverview();
+      final res = await _api.getStatsOverview(examCategory: examCategory);
       _overview = StatsOverview.fromJson(res.data);
       _error = null;
     } catch (e) {
@@ -184,6 +266,23 @@ class StudyProvider extends ChangeNotifier {
   }
 
   void clearError() {
+    _error = null;
+    notifyListeners();
+  }
+
+  void clearUserSession() {
+    _plans = [];
+    _todayTask = null;
+    _wrongQuestions = [];
+    _wrongReviewCalendar = null;
+    _wrongReviewPlan = null;
+    _todayStats = null;
+    _overview = null;
+    _prescription = null;
+    _isLoading = false;
+    _isLoadingMoreWrongQuestions = false;
+    _hasMoreWrongQuestions = true;
+    _wrongQuestionExamCategory = null;
     _error = null;
     notifyListeners();
   }

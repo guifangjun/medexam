@@ -10,9 +10,14 @@ class QuestionProvider extends ChangeNotifier {
   String _examCategory = '执业资格';
   String _practiceMode = 'chapter';
   String? _practiceTitle;
+  int? _practiceChapterId;
+  bool _practiceAttempted = false;
   String? _recentStudyTitle;
   String? _recentStudyAction;
   int? _recentChapterId;
+  String? _recentStudyMode;
+  String? _recentStudyTag;
+  int _recentStudyLimit = 20;
   List<Chapter> _chapters = [];
   List<Question> _currentQuestions = [];
   int _currentIndex = 0;
@@ -20,6 +25,7 @@ class QuestionProvider extends ChangeNotifier {
   SubmitResult? _lastResult;
   ExamResult? _examResult;
   List<ExamAttemptSummary> _examAttempts = [];
+  int? _examAvailableCount;
   final Map<int, String> _examAnswers = {};
   bool _isLoading = false;
   String? _error;
@@ -27,16 +33,36 @@ class QuestionProvider extends ChangeNotifier {
   bool get useMockData => _useMockData;
 
   void setMockDataMode(bool enabled) {
+    if (_useMockData == enabled) return;
     _useMockData = enabled;
+    _chapters = [];
+    _currentQuestions = [];
+    _currentIndex = 0;
+    _currentQuestion = null;
+    _lastResult = null;
+    _examResult = null;
+    _examAnswers.clear();
+    _examAttempts = [];
+    _examAvailableCount = null;
+    _practiceAttempted = false;
+    _error = null;
     notifyListeners();
+    loadChapters();
+    loadExamAttempts();
+    loadExamAvailability();
   }
 
   String get examCategory => _examCategory;
   String get practiceMode => _practiceMode;
   String? get practiceTitle => _practiceTitle;
+  int? get practiceChapterId => _practiceChapterId;
+  bool get practiceAttempted => _practiceAttempted;
   String? get recentStudyTitle => _recentStudyTitle;
   String? get recentStudyAction => _recentStudyAction;
   int? get recentChapterId => _recentChapterId;
+  String? get recentStudyMode => _recentStudyMode;
+  String? get recentStudyTag => _recentStudyTag;
+  int get recentStudyLimit => _recentStudyLimit;
   List<Chapter> get chapters => _chapters;
   List<Question> get currentQuestions => _currentQuestions;
   int get currentIndex => _currentIndex;
@@ -44,10 +70,15 @@ class QuestionProvider extends ChangeNotifier {
   SubmitResult? get lastResult => _lastResult;
   ExamResult? get examResult => _examResult;
   List<ExamAttemptSummary> get examAttempts => _examAttempts;
+  int? get examAvailableCount => _examAvailableCount;
   Map<int, String> get examAnswers => Map.unmodifiable(_examAnswers);
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get hasQuestions => _currentQuestions.isNotEmpty;
+  bool get hasPracticeQuestions =>
+      _currentQuestions.isNotEmpty && _practiceMode != 'exam';
+  bool get hasExamQuestions =>
+      _currentQuestions.isNotEmpty && _practiceMode == 'exam';
   bool get isLastQuestion => _currentIndex >= _currentQuestions.length - 1;
 
   double get progress {
@@ -83,7 +114,7 @@ class QuestionProvider extends ChangeNotifier {
     '中级职称': [
       Chapter(
           id: 21,
-          name: '高级临床理论',
+          name: '中级临床理论',
           order: 1,
           subjects: ['病理生理学', '分子生物学', '免疫学']),
       Chapter(
@@ -325,8 +356,23 @@ class QuestionProvider extends ChangeNotifier {
       _lastResult = null;
       _examResult = null;
       _examAnswers.clear();
+      _examAttempts = [];
+      _examAvailableCount = null;
+      _practiceMode = 'chapter';
+      _practiceTitle = null;
+      _practiceChapterId = null;
+      _practiceAttempted = false;
+      _recentStudyTitle = null;
+      _recentStudyAction = null;
+      _recentChapterId = null;
+      _recentStudyMode = null;
+      _recentStudyTag = null;
+      _recentStudyLimit = 20;
+      _error = null;
       notifyListeners();
       loadChapters();
+      loadExamAttempts();
+      loadExamAvailability();
     }
   }
 
@@ -361,6 +407,7 @@ class QuestionProvider extends ChangeNotifier {
 
   Future<void> loadPracticeQuestions({
     int? chapterId,
+    List<int>? questionIds,
     int? difficulty,
     String mode = 'chapter',
     String? tag,
@@ -374,6 +421,7 @@ class QuestionProvider extends ChangeNotifier {
 
       final res = await _api.getPracticeQuestions(
         chapterId: chapterId,
+        questionIds: questionIds,
         examCategory: _examCategory,
         difficulty: difficulty,
         mode: mode,
@@ -391,14 +439,29 @@ class QuestionProvider extends ChangeNotifier {
       _error = _currentQuestions.isEmpty ? '暂无题目' : null;
       _practiceMode = mode;
       _practiceTitle = title ?? _modeTitle(mode, tag: tag);
+      _practiceChapterId = chapterId;
+      _practiceAttempted = true;
+      _recentStudyTitle = _practiceTitle;
+      _recentStudyAction = _currentQuestions.isEmpty
+          ? '回到${_practiceTitle ?? "练习"}'
+          : '继续${_practiceTitle ?? "刷题"}';
+      _recentChapterId = chapterId;
+      _recentStudyMode = mode;
+      _recentStudyTag = tag;
+      _recentStudyLimit = limit;
       if (_currentQuestions.isNotEmpty) {
-        _recentStudyTitle = _practiceTitle;
-        _recentStudyAction = '继续${_practiceTitle ?? "刷题"}';
-        _recentChapterId = chapterId;
+        _error = null;
       }
     } catch (e) {
       if (_useMockData) {
-        _loadMockPracticeQuestions(chapterId: chapterId, limit: limit);
+        _loadMockPracticeQuestions(
+          chapterId: chapterId,
+          questionIds: questionIds,
+          mode: mode,
+          tag: tag,
+          title: title ?? _modeTitle(mode, tag: tag),
+          limit: limit,
+        );
         _error = null;
       } else {
         _currentQuestions = [];
@@ -407,6 +470,16 @@ class QuestionProvider extends ChangeNotifier {
         _examResult = null;
         _examAnswers.clear();
         _error = '题目加载失败，请稍后重试';
+        _practiceMode = mode;
+        _practiceTitle = title ?? _modeTitle(mode, tag: tag);
+        _practiceChapterId = chapterId;
+        _practiceAttempted = true;
+        _recentStudyTitle = _practiceTitle;
+        _recentStudyAction = '重试${_practiceTitle ?? "练习"}';
+        _recentChapterId = chapterId;
+        _recentStudyMode = mode;
+        _recentStudyTag = tag;
+        _recentStudyLimit = limit;
       }
     } finally {
       _isLoading = false;
@@ -432,6 +505,9 @@ class QuestionProvider extends ChangeNotifier {
       _examAnswers.clear();
       _currentQuestion =
           _currentQuestions.isNotEmpty ? _currentQuestions.first : null;
+      _practiceMode = 'exam';
+      _practiceTitle = '${_examCategory}模考';
+      _practiceAttempted = false;
       if (_currentQuestions.isEmpty) {
         _error = '当前考试目标暂无可用模考题，请先在后台添加真题';
       } else if (_currentQuestions.length < count) {
@@ -449,6 +525,9 @@ class QuestionProvider extends ChangeNotifier {
         _lastResult = null;
         _examResult = null;
         _examAnswers.clear();
+        _practiceMode = 'exam';
+        _practiceTitle = '${_examCategory}模考';
+        _practiceAttempted = false;
         _error = '模考题加载失败，请稍后重试';
       }
     } finally {
@@ -457,8 +536,43 @@ class QuestionProvider extends ChangeNotifier {
     }
   }
 
-  void _loadMockPracticeQuestions({int? chapterId, int limit = 20}) {
-    if (chapterId != null) {
+  Future<void> loadExamAvailability() async {
+    if (_useMockData) {
+      final chapters = _mockChaptersByCategory[_examCategory] ?? [];
+      _examAvailableCount = chapters.fold<int>(
+        0,
+        (sum, chapter) =>
+            sum + (_mockQuestionsByChapter[chapter.id]?.length ?? 0),
+      );
+      notifyListeners();
+      return;
+    }
+    try {
+      final res = await _api.getExamQuestionCount(examCategory: _examCategory);
+      _examAvailableCount = res.data['count'] ?? 0;
+      notifyListeners();
+    } catch (e) {
+      _examAvailableCount = null;
+      notifyListeners();
+    }
+  }
+
+  void _loadMockPracticeQuestions({
+    int? chapterId,
+    List<int>? questionIds,
+    String mode = 'chapter',
+    String? tag,
+    String? title,
+    int limit = 20,
+  }) {
+    if (questionIds != null && questionIds.isNotEmpty) {
+      final allQuestions =
+          _mockQuestionsByChapter.values.expand((item) => item);
+      final idSet = questionIds.toSet();
+      _currentQuestions = allQuestions
+          .where((question) => idSet.contains(question.id))
+          .toList();
+    } else if (chapterId != null) {
       _currentQuestions = _mockQuestionsByChapter[chapterId] ?? [];
     } else {
       final chapters = _mockChaptersByCategory[_examCategory] ?? [];
@@ -476,6 +590,18 @@ class QuestionProvider extends ChangeNotifier {
     _examAnswers.clear();
     _currentQuestion =
         _currentQuestions.isNotEmpty ? _currentQuestions.first : null;
+    _practiceMode = mode;
+    _practiceTitle = title ?? _modeTitle(mode);
+    _practiceChapterId = chapterId;
+    _practiceAttempted = true;
+    _recentStudyTitle = _practiceTitle;
+    _recentStudyAction = _currentQuestions.isEmpty
+        ? '回到${_practiceTitle ?? "练习"}'
+        : '继续${_practiceTitle ?? "刷题"}';
+    _recentChapterId = chapterId;
+    _recentStudyMode = mode;
+    _recentStudyTag = tag;
+    _recentStudyLimit = limit;
   }
 
   String _modeTitle(String mode, {String? tag}) {
@@ -509,6 +635,7 @@ class QuestionProvider extends ChangeNotifier {
     _examAnswers.clear();
     _currentQuestion =
         _currentQuestions.isNotEmpty ? _currentQuestions.first : null;
+    _practiceAttempted = false;
   }
 
   void selectExamAnswer(String selectedAnswer) {
@@ -550,7 +677,11 @@ class QuestionProvider extends ChangeNotifier {
 
   Future<void> loadExamAttempts({int skip = 0, int limit = 20}) async {
     try {
-      final res = await _api.getExamAttempts(skip: skip, limit: limit);
+      final res = await _api.getExamAttempts(
+        skip: skip,
+        limit: limit,
+        examCategory: _examCategory,
+      );
       _examAttempts = (res.data as List)
           .map((item) => ExamAttemptSummary.fromJson(item))
           .toList();
@@ -582,7 +713,10 @@ class QuestionProvider extends ChangeNotifier {
     }
   }
 
-  Future<SubmitResult?> submitAnswer(String selectedAnswer) async {
+  Future<SubmitResult?> submitAnswer(
+    String selectedAnswer, {
+    int timeSpent = 0,
+  }) async {
     if (_currentQuestion == null) return null;
 
     // 演示模式：使用本地验证
@@ -608,6 +742,7 @@ class QuestionProvider extends ChangeNotifier {
       final res = await _api.submitQuestion({
         'question_id': _currentQuestion!.id,
         'selected_answer': selectedAnswer,
+        'time_spent': timeSpent,
       });
       _lastResult = SubmitResult.fromJson(res.data);
       _lastResult = SubmitResult(
@@ -620,20 +755,13 @@ class QuestionProvider extends ChangeNotifier {
       notifyListeners();
       return _lastResult;
     } catch (e) {
-      // API 调用失败时降级到本地验证
-      final isCorrect = selectedAnswer.toUpperCase() ==
-          _currentQuestion!.answer.toUpperCase();
-      _lastResult = SubmitResult(
-        isCorrect: isCorrect,
-        correctAnswer: _currentQuestion!.answer,
-        selectedAnswer: selectedAnswer,
-        explanation: _currentQuestion!.explanation ??
-            '本题考察${_currentQuestion!.tags.join("、")}相关知识点',
-      );
+      _lastResult = null;
+      _error = '提交失败，请检查网络或登录状态后重试';
       notifyListeners();
-      return _lastResult;
+      return null;
     } finally {
       _isLoading = false;
+      notifyListeners();
     }
   }
 
@@ -662,6 +790,35 @@ class QuestionProvider extends ChangeNotifier {
     _lastResult = null;
     _examResult = null;
     _examAnswers.clear();
+    _practiceChapterId = null;
+    _practiceAttempted = false;
+    _practiceMode = 'chapter';
+    _practiceTitle = null;
+    _error = null;
+    notifyListeners();
+  }
+
+  void clearUserSession() {
+    _chapters = [];
+    _currentQuestions = [];
+    _currentIndex = 0;
+    _currentQuestion = null;
+    _lastResult = null;
+    _examResult = null;
+    _examAttempts = [];
+    _examAnswers.clear();
+    _practiceChapterId = null;
+    _practiceAttempted = false;
+    _practiceMode = 'chapter';
+    _practiceTitle = null;
+    _recentStudyTitle = null;
+    _recentStudyAction = null;
+    _recentChapterId = null;
+    _recentStudyMode = null;
+    _recentStudyTag = null;
+    _recentStudyLimit = 20;
+    _isLoading = false;
+    _error = null;
     notifyListeners();
   }
 

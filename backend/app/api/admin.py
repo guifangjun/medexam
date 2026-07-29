@@ -5,16 +5,19 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import create_access_token, get_password_hash, verify_password
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.exam_categories import try_normalize_exam_category
 from app.models.admin_user import AdminUser
+from app.models.conversation import AIConversation
 from app.models.course import Course
 from app.models.question import Chapter, Question, QuestionRecord
-from app.models.study import StudyStats, WrongQuestion
+from app.models.question import ExamAttempt
+from app.models.study import DailyTask, StudyPlan, StudyStats, WrongQuestion
 from app.models.user import User
 from app.schemas.admin_user import AdminUserResponse
 from app.schemas.course import CourseCreate, CourseResponse, CourseUpdate
@@ -120,6 +123,7 @@ async def dashboard(
 ):
     today = datetime.now().strftime("%Y-%m-%d")
     user_count = await db.scalar(select(func.count()).select_from(User)) or 0
+    question_count = await db.scalar(select(func.count()).select_from(Question)) or 0
     course_count = await db.scalar(select(func.count()).select_from(Course)) or 0
     today_stats = await db.execute(
         select(
@@ -134,6 +138,23 @@ async def dashboard(
     wrong_reviews = await db.scalar(
         select(func.sum(WrongQuestion.review_count)).select_from(WrongQuestion)
     ) or 0
+    today_ai_questions = await db.scalar(
+        select(func.count(AIConversation.id)).where(
+            AIConversation.message_type == "user",
+            func.date(AIConversation.created_at) == today,
+        )
+    ) or 0
+    ai_session_count = await db.scalar(
+        select(func.count(func.distinct(AIConversation.session_id))).select_from(
+            AIConversation
+        )
+    ) or 0
+    ai_collection_count = await db.scalar(
+        select(func.count(AIConversation.id)).where(
+            AIConversation.message_type == "assistant",
+            AIConversation.is_collected == True,
+        )
+    ) or 0
 
     categories = await db.execute(
         select(User.target_exam, func.count(User.id))
@@ -145,22 +166,32 @@ async def dashboard(
             Chapter.id,
             Chapter.name,
             Chapter.exam_category,
-            func.count(Question.id).label("question_count"),
-            func.count(QuestionRecord.id).label("practice_count"),
+            func.count(func.distinct(Question.id)).label("question_count"),
+            func.count(func.distinct(QuestionRecord.id)).label("practice_count"),
         )
         .outerjoin(Question, Question.chapter_id == Chapter.id)
-        .outerjoin(QuestionRecord, QuestionRecord.question_id == Question.id)
+        .outerjoin(
+            QuestionRecord,
+            and_(
+                QuestionRecord.question_id == Question.id,
+                QuestionRecord.selected_answer.is_not(None),
+            ),
+        )
         .group_by(Chapter.id)
         .order_by(func.count(QuestionRecord.id).desc(), Chapter.order)
         .limit(20)
     )
     return {
         "user_count": user_count,
+        "question_count": question_count,
         "today_active_users": stats.active_users or 0,
         "today_questions": today_questions,
         "today_accuracy": today_correct / today_questions if today_questions else 0.0,
         "wrong_review_count": wrong_reviews,
         "course_count": course_count,
+        "today_ai_questions": today_ai_questions,
+        "ai_session_count": ai_session_count,
+        "ai_collection_count": ai_collection_count,
         "user_categories": [
             {"name": name or "未设置", "count": count} for name, count in categories.all()
         ],
@@ -197,7 +228,10 @@ async def list_users(
             )
         )
     if exam_category:
-        query = query.where(User.target_exam == exam_category)
+        category = try_normalize_exam_category(exam_category)
+        if category is None:
+            return []
+        query = query.where(User.target_exam == category)
     if is_active is not None:
         query = query.where(User.is_active == is_active)
     result = await db.execute(query)
@@ -215,6 +249,9 @@ async def create_user(
         raise HTTPException(status_code=400, detail="手机号格式不正确")
     if len(user.password) < 6:
         raise HTTPException(status_code=400, detail="密码至少 6 位")
+    target_exam = try_normalize_exam_category(user.target_exam)
+    if target_exam is None:
+        raise HTTPException(status_code=400, detail="考试分类不正确")
 
     result = await db.execute(
         select(User).where(or_(User.username == phone, User.phone == phone))
@@ -228,7 +265,7 @@ async def create_user(
         email=f"{phone}@phone.medexam.cn",
         hashed_password=get_password_hash(user.password),
         full_name=user.full_name,
-        target_exam=user.target_exam,
+        target_exam=target_exam,
         is_active=user.is_active,
     )
     db.add(db_user)
@@ -272,6 +309,11 @@ async def update_user(
                 raise HTTPException(status_code=400, detail="密码至少 6 位")
             db_user.hashed_password = get_password_hash(password)
     for key, value in update_data.items():
+        if key == "target_exam":
+            category = try_normalize_exam_category(value)
+            if category is None:
+                raise HTTPException(status_code=400, detail="考试分类不正确")
+            value = category
         setattr(db_user, key, value)
     await db.commit()
     await db.refresh(db_user)
@@ -288,6 +330,16 @@ async def delete_user(
     db_user = result.scalar_one_or_none()
     if not db_user:
         raise HTTPException(status_code=404, detail="用户不存在")
+    for model in (
+        AIConversation,
+        WrongQuestion,
+        QuestionRecord,
+        ExamAttempt,
+        DailyTask,
+        StudyStats,
+        StudyPlan,
+    ):
+        await db.execute(delete(model).where(model.user_id == user_id))
     await db.delete(db_user)
     await db.commit()
     return {"message": "删除成功"}
@@ -304,9 +356,21 @@ async def list_questions(
 ):
     query = select(Question).order_by(Question.created_at.desc()).limit(limit)
     if chapter_id:
-        query = query.where(Question.chapter_id == chapter_id)
+        if exam_category:
+            category = try_normalize_exam_category(exam_category)
+            if category is None:
+                return []
+            query = query.join(Chapter).where(
+                Question.chapter_id == chapter_id,
+                Chapter.exam_category == category,
+            )
+        else:
+            query = query.where(Question.chapter_id == chapter_id)
     elif exam_category:
-        query = query.join(Chapter).where(Chapter.exam_category == exam_category)
+        category = try_normalize_exam_category(exam_category)
+        if category is None:
+            return []
+        query = query.join(Chapter).where(Chapter.exam_category == category)
     if keyword:
         query = query.where(Question.content.contains(keyword))
     result = await db.execute(query)
@@ -318,7 +382,10 @@ async def create_question(
     current_admin: AdminUser = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    db_question = Question(**question.model_dump())
+    data = _question_data_for_db(question.model_dump())
+    await _validate_question_chapter(db, data["chapter_id"])
+    _validate_question_answer(data["answer"], data["options"])
+    db_question = Question(**data)
     db.add(db_question)
     await db.commit()
     await db.refresh(db_question)
@@ -337,7 +404,14 @@ async def update_question(
     if not db_question:
         raise HTTPException(status_code=404, detail="题目不存在")
 
-    for key, value in question.model_dump(exclude_unset=True).items():
+    update_data = _question_data_for_db(question.model_dump(exclude_unset=True))
+    if "chapter_id" in update_data:
+        await _validate_question_chapter(db, update_data["chapter_id"])
+    next_answer = update_data.get("answer", db_question.answer)
+    next_options = update_data.get("options", db_question.options or {})
+    _validate_question_answer(next_answer, next_options)
+
+    for key, value in update_data.items():
         setattr(db_question, key, value)
     await db.commit()
     await db.refresh(db_question)
@@ -354,6 +428,12 @@ async def delete_question(
     db_question = result.scalar_one_or_none()
     if not db_question:
         raise HTTPException(status_code=404, detail="题目不存在")
+    await db.execute(
+        delete(WrongQuestion).where(WrongQuestion.question_id == question_id)
+    )
+    await db.execute(
+        delete(QuestionRecord).where(QuestionRecord.question_id == question_id)
+    )
     await db.delete(db_question)
     await db.commit()
     return {"message": "删除成功"}
@@ -366,15 +446,37 @@ async def list_courses(
     current_admin: Optional[AdminUser] = Depends(get_optional_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Course).order_by(Course.created_at.desc())
+    query = (
+        select(
+            Course,
+            Chapter.name.label("chapter_name"),
+            func.count(Question.id).label("chapter_question_count"),
+        )
+        .outerjoin(Chapter, Course.chapter_id == Chapter.id)
+        .outerjoin(Question, Question.chapter_id == Course.chapter_id)
+        .group_by(Course.id)
+        .order_by(Course.created_at.desc())
+    )
     if current_admin is None:
         query = query.where(Course.is_published == True)
     if course_type:
         query = query.where(Course.course_type == course_type)
     if exam_category:
-        query = query.where(Course.exam_category == exam_category)
+        category = try_normalize_exam_category(exam_category)
+        if category is None:
+            return []
+        query = query.where(Course.exam_category == category)
     result = await db.execute(query)
-    return result.scalars().all()
+    courses = []
+    for course, chapter_name, chapter_question_count in result.all():
+        courses.append(
+            _course_response(
+                course,
+                chapter_name=chapter_name,
+                chapter_question_count=chapter_question_count,
+            )
+        )
+    return courses
 
 
 @router.post("/courses", response_model=CourseResponse)
@@ -383,11 +485,15 @@ async def create_course(
     current_admin: AdminUser = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    db_course = Course(**course.model_dump())
+    data = course.model_dump()
+    await _validate_course_chapter(
+        db, data.get("chapter_id"), data["exam_category"]
+    )
+    db_course = Course(**data)
     db.add(db_course)
     await db.commit()
     await db.refresh(db_course)
-    return db_course
+    return await _course_response_with_chapter(db, db_course)
 
 
 @router.put("/courses/{course_id}", response_model=CourseResponse)
@@ -402,11 +508,18 @@ async def update_course(
     if not db_course:
         raise HTTPException(status_code=404, detail="课程不存在")
 
-    for key, value in course.model_dump(exclude_unset=True).items():
+    update_data = course.model_dump(exclude_unset=True)
+    next_exam_category = update_data.get(
+        "exam_category", db_course.exam_category
+    )
+    next_chapter_id = update_data.get("chapter_id", db_course.chapter_id)
+    await _validate_course_chapter(db, next_chapter_id, next_exam_category)
+
+    for key, value in update_data.items():
         setattr(db_course, key, value)
     await db.commit()
     await db.refresh(db_course)
-    return db_course
+    return await _course_response_with_chapter(db, db_course)
 
 
 @router.delete("/courses/{course_id}")
@@ -422,3 +535,69 @@ async def delete_course(
     await db.delete(db_course)
     await db.commit()
     return {"message": "删除成功"}
+
+
+async def _validate_course_chapter(
+    db: AsyncSession, chapter_id: Optional[int], exam_category: str
+) -> None:
+    if chapter_id is None:
+        return
+    result = await db.execute(select(Chapter).where(Chapter.id == chapter_id))
+    chapter = result.scalar_one_or_none()
+    if not chapter:
+        raise HTTPException(status_code=400, detail="关联章节不存在")
+    if chapter.exam_category != exam_category:
+        raise HTTPException(
+            status_code=400,
+            detail="关联章节必须属于课程考试类型",
+        )
+
+
+def _course_response(
+    course: Course,
+    chapter_name: Optional[str] = None,
+    chapter_question_count: Optional[int] = 0,
+) -> dict:
+    item = CourseResponse.model_validate(course).model_dump()
+    item["chapter_name"] = chapter_name
+    item["chapter_question_count"] = chapter_question_count or 0
+    return item
+
+
+async def _course_response_with_chapter(db: AsyncSession, course: Course) -> dict:
+    if course.chapter_id is None:
+        return _course_response(course)
+    row = await db.execute(
+        select(
+            Chapter.name.label("chapter_name"),
+            func.count(Question.id).label("chapter_question_count"),
+        )
+        .outerjoin(Question, Question.chapter_id == Chapter.id)
+        .where(Chapter.id == course.chapter_id)
+        .group_by(Chapter.id)
+    )
+    chapter_name, chapter_question_count = row.one_or_none() or (None, 0)
+    return _course_response(
+        course,
+        chapter_name=chapter_name,
+        chapter_question_count=chapter_question_count,
+    )
+
+
+async def _validate_question_chapter(db: AsyncSession, chapter_id: int) -> None:
+    result = await db.execute(select(Chapter.id).where(Chapter.id == chapter_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=400, detail="章节不存在")
+
+
+def _question_data_for_db(data: dict) -> dict:
+    if "tags" in data:
+        data["知识点"] = data.pop("tags") or []
+    return data
+
+
+def _validate_question_answer(answer: str, options: dict) -> None:
+    option_keys = {str(key).strip().upper() for key in (options or {}).keys()}
+    answers = [item.strip().upper() for item in str(answer).split(",") if item.strip()]
+    if not answers or any(item not in option_keys for item in answers):
+        raise HTTPException(status_code=400, detail="答案必须匹配选项")

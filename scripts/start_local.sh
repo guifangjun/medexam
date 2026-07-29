@@ -49,7 +49,7 @@ echo "Student app: http://127.0.0.1:${WEB_PORT}/"
 echo "Admin: http://127.0.0.1:${WEB_PORT}/#/admin"
 
 cd "${PROJECT_DIR}/app"
-"${FLUTTER_BIN}" build web
+"${FLUTTER_BIN}" build web --pwa-strategy=none
 python3 "${PROJECT_DIR}/scripts/serve_web.py" \
   --directory "${PROJECT_DIR}/app/build/web" \
   --host 127.0.0.1 \

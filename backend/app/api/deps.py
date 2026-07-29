@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
@@ -10,6 +10,7 @@ import random
 
 from app.core.database import get_db
 from app.core.config import settings
+from app.core.exam_categories import try_normalize_exam_category
 from app.models.user import User
 from app.schemas.user import UserCreate, UserResponse, UserLogin, Token, UserUpdate
 
@@ -56,16 +57,44 @@ async def get_current_user(
 
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
-_sms_codes: dict[str, str] = {}
+_sms_codes: dict[str, dict] = {}
+SMS_CODE_TTL_MINUTES = 5
+
+
+def _get_valid_sms_record(phone: str, purpose: str) -> Optional[dict]:
+    record = _sms_codes.get(phone)
+    if not record or record.get("purpose") != purpose:
+        return None
+    expires_at = record.get("expires_at")
+    if expires_at and datetime.utcnow() > expires_at:
+        _sms_codes.pop(phone, None)
+        return None
+    return record
 
 
 @router.post("/sms-code")
-async def send_sms_code(payload: dict):
+async def send_sms_code(payload: dict, db: AsyncSession = Depends(get_db)):
     phone = str(payload.get("phone", "")).strip()
+    purpose = str(payload.get("purpose", "login")).strip()
     if len(phone) != 11 or not phone.isdigit():
         raise HTTPException(status_code=400, detail="手机号格式不正确")
+    if purpose not in {"login", "register"}:
+        raise HTTPException(status_code=400, detail="验证码用途不正确")
+
+    result = await db.execute(select(User).where(User.phone == phone))
+    user = result.scalar_one_or_none()
+    if purpose == "login":
+        if not user or not user.is_active:
+            raise HTTPException(status_code=400, detail="手机号未注册或账号已停用")
+    elif user:
+        raise HTTPException(status_code=400, detail="手机号已注册，请直接登录")
+
     code = f"{random.randint(0, 999999):06d}"
-    _sms_codes[phone] = code
+    _sms_codes[phone] = {
+        "code": code,
+        "purpose": purpose,
+        "expires_at": datetime.utcnow() + timedelta(minutes=SMS_CODE_TTL_MINUTES),
+    }
     # 本地演示环境没有真实短信网关，直接返回验证码，前端用于提示用户。
     return {"message": "验证码已发送", "code": code}
 
@@ -74,8 +103,11 @@ async def send_sms_code(payload: dict):
 async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     if not user.phone:
         raise HTTPException(status_code=400, detail="请输入手机号")
-    expected_code = _sms_codes.get(user.phone)
-    if not expected_code or user.sms_code != expected_code:
+    sms_record = _get_valid_sms_record(user.phone, "register")
+    if (
+        not sms_record
+        or user.sms_code != sms_record.get("code")
+    ):
         raise HTTPException(status_code=400, detail="手机验证码错误")
 
     username = user.phone
@@ -114,8 +146,15 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
         raise HTTPException(status_code=401, detail="登录账号必须是手机号")
     result = await db.execute(select(User).where(User.phone == phone))
     user = result.scalar_one_or_none()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="手机号或密码错误")
+    if (
+        not user
+        or not user.is_active
+        or not verify_password(form_data.password, user.hashed_password)
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="手机号未注册、密码错误或账号已停用",
+        )
 
     access_token = create_access_token(data={"user_id": user.id, "username": user.username})
     return {"access_token": access_token, "token_type": "bearer"}
@@ -127,8 +166,11 @@ async def login_with_sms(payload: dict, db: AsyncSession = Depends(get_db)):
     sms_code = str(payload.get("sms_code", "")).strip()
     if len(phone) != 11 or not phone.isdigit():
         raise HTTPException(status_code=401, detail="登录账号必须是手机号")
-    expected_code = _sms_codes.get(phone)
-    if not expected_code or sms_code != expected_code:
+    sms_record = _get_valid_sms_record(phone, "login")
+    if (
+        not sms_record
+        or sms_code != sms_record.get("code")
+    ):
         raise HTTPException(status_code=401, detail="手机验证码错误")
 
     result = await db.execute(select(User).where(User.phone == phone))
@@ -153,6 +195,21 @@ async def update_me(
     db: AsyncSession = Depends(get_db)
 ):
     update_data = user_update.model_dump(exclude_unset=True)
+    if "phone" in update_data:
+        phone = (update_data.pop("phone") or "").strip()
+        if len(phone) != 11 or not phone.isdigit():
+            raise HTTPException(status_code=400, detail="手机号格式不正确")
+        result = await db.execute(
+            select(User).where(
+                or_(User.username == phone, User.phone == phone),
+                User.id != current_user.id,
+            )
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="手机号已注册")
+        current_user.username = phone
+        current_user.phone = phone
+        current_user.email = f"{phone}@phone.medexam.cn"
     for key, value in update_data.items():
         setattr(current_user, key, value)
     await db.commit()

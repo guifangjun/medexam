@@ -42,6 +42,7 @@ class StudyPlan {
 class DailyTask {
   final int id;
   final int? planId;
+  final String examCategory;
   final String date;
   final int targetQuestions;
   final int completedQuestions;
@@ -51,6 +52,7 @@ class DailyTask {
   DailyTask({
     required this.id,
     this.planId,
+    required this.examCategory,
     required this.date,
     required this.targetQuestions,
     required this.completedQuestions,
@@ -62,6 +64,7 @@ class DailyTask {
     return DailyTask(
       id: json['id'],
       planId: json['plan_id'],
+      examCategory: json['exam_category'] ?? '执业资格',
       date: json['date'],
       targetQuestions: json['target_questions'],
       completedQuestions: json['completed_questions'],
@@ -72,6 +75,29 @@ class DailyTask {
 
   double get progress =>
       targetQuestions > 0 ? completedQuestions / targetQuestions : 0.0;
+
+  double get displayProgress => progress.clamp(0.0, 1.0);
+
+  int get displayPercent => (displayProgress * 100).round();
+
+  int get remainingQuestions =>
+      (targetQuestions - completedQuestions).clamp(0, targetQuestions);
+
+  bool get isOverTarget =>
+      targetQuestions > 0 && completedQuestions > targetQuestions;
+
+  String get progressLabel {
+    if (targetQuestions <= 0) return '已完成 $completedQuestions 题';
+    if (isOverTarget) {
+      return '目标 $targetQuestions 题，已完成 $completedQuestions 题';
+    }
+    return '$completedQuestions/$targetQuestions 题';
+  }
+
+  String get completionStatusLabel {
+    if (isOverTarget) return '今日已超额完成 🎉';
+    return isCompleted ? '今日任务已完成 🎉' : '继续加油！';
+  }
 }
 
 class WrongQuestion {
@@ -126,6 +152,148 @@ class WrongQuestion {
   }
 }
 
+class WrongReviewCalendarDay {
+  final String date;
+  final int dueCount;
+  final int overdueCount;
+  final int masteredCount;
+
+  WrongReviewCalendarDay({
+    required this.date,
+    required this.dueCount,
+    required this.overdueCount,
+    required this.masteredCount,
+  });
+
+  factory WrongReviewCalendarDay.fromJson(Map<String, dynamic> json) {
+    return WrongReviewCalendarDay(
+      date: json['date'] ?? '',
+      dueCount: json['due_count'] ?? 0,
+      overdueCount: json['overdue_count'] ?? 0,
+      masteredCount: json['mastered_count'] ?? 0,
+    );
+  }
+}
+
+class WrongReviewCalendar {
+  final String today;
+  final int totalWrong;
+  final int dueToday;
+  final int overdue;
+  final int mastered;
+  final List<WrongReviewCalendarDay> upcoming;
+
+  WrongReviewCalendar({
+    required this.today,
+    required this.totalWrong,
+    required this.dueToday,
+    required this.overdue,
+    required this.mastered,
+    required this.upcoming,
+  });
+
+  factory WrongReviewCalendar.fromJson(Map<String, dynamic> json) {
+    return WrongReviewCalendar(
+      today: json['today'] ?? '',
+      totalWrong: json['total_wrong'] ?? 0,
+      dueToday: json['due_today'] ?? 0,
+      overdue: json['overdue'] ?? 0,
+      mastered: json['mastered'] ?? 0,
+      upcoming: (json['upcoming'] as List? ?? [])
+          .map((item) => WrongReviewCalendarDay.fromJson(item))
+          .toList(),
+    );
+  }
+}
+
+class WrongReviewFocusItem {
+  final String label;
+  final int count;
+  final String advice;
+
+  WrongReviewFocusItem({
+    required this.label,
+    required this.count,
+    required this.advice,
+  });
+
+  factory WrongReviewFocusItem.fromJson(Map<String, dynamic> json) {
+    return WrongReviewFocusItem(
+      label: json['label'] ?? '',
+      count: json['count'] ?? 0,
+      advice: json['advice'] ?? '',
+    );
+  }
+}
+
+class WrongReviewPlan {
+  final String title;
+  final String summary;
+  final int dueToday;
+  final int overdue;
+  final int mastered;
+  final int suggestedCount;
+  final List<WrongReviewFocusItem> focusTags;
+  final List<WrongReviewFocusItem> focusReasons;
+  final List<String> actions;
+
+  WrongReviewPlan({
+    required this.title,
+    required this.summary,
+    required this.dueToday,
+    required this.overdue,
+    required this.mastered,
+    required this.suggestedCount,
+    required this.focusTags,
+    required this.focusReasons,
+    required this.actions,
+  });
+
+  factory WrongReviewPlan.fromJson(Map<String, dynamic> json) {
+    return WrongReviewPlan(
+      title: json['title'] ?? '错题复盘',
+      summary: json['summary'] ?? '',
+      dueToday: json['due_today'] ?? 0,
+      overdue: json['overdue'] ?? 0,
+      mastered: json['mastered'] ?? 0,
+      suggestedCount: json['suggested_count'] ?? 0,
+      focusTags: (json['focus_tags'] as List? ?? [])
+          .map((item) => WrongReviewFocusItem.fromJson(item))
+          .toList(),
+      focusReasons: (json['focus_reasons'] as List? ?? [])
+          .map((item) => WrongReviewFocusItem.fromJson(item))
+          .toList(),
+      actions: List<String>.from(json['actions'] ?? []),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'title': title,
+      'summary': summary,
+      'due_today': dueToday,
+      'overdue': overdue,
+      'mastered': mastered,
+      'suggested_count': suggestedCount,
+      'focus_tags': focusTags
+          .map((item) => {
+                'label': item.label,
+                'count': item.count,
+                'advice': item.advice,
+              })
+          .toList(),
+      'focus_reasons': focusReasons
+          .map((item) => {
+                'label': item.label,
+                'count': item.count,
+                'advice': item.advice,
+              })
+          .toList(),
+      'actions': actions,
+    };
+  }
+}
+
 class StudyStats {
   final String date;
   final int totalQuestions;
@@ -155,6 +323,18 @@ class StudyStats {
       timeSpent: json['time_spent'] ?? 0,
       aiQuestions: json['ai_questions'] ?? 0,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'date': date,
+      'total_questions': totalQuestions,
+      'correct_count': correctCount,
+      'wrong_count': wrongCount,
+      'accuracy_rate': accuracyRate,
+      'time_spent': timeSpent,
+      'ai_questions': aiQuestions,
+    };
   }
 }
 
@@ -187,6 +367,18 @@ class WeakArea {
       accuracyRate: (json['accuracy_rate'] ?? 0.0).toDouble(),
       status: json['status'] ?? '待开始',
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'chapter_id': chapterId,
+      'chapter_name': chapterName,
+      'exam_category': examCategory,
+      'practice_count': practiceCount,
+      'wrong_count': wrongCount,
+      'accuracy_rate': accuracyRate,
+      'status': status,
+    };
   }
 }
 
@@ -234,6 +426,22 @@ class StudyPrescription {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'date': date,
+      'target_questions': targetQuestions,
+      'completed_questions': completedQuestions,
+      'accuracy_rate': accuracyRate,
+      'time_spent': timeSpent,
+      'recommendation_title': recommendationTitle,
+      'recommendation_reason': recommendationReason,
+      'recommended_mode': recommendedMode,
+      'recommended_chapter_id': recommendedChapterId,
+      'recommended_tag': recommendedTag,
+      'weak_areas': weakAreas.map((item) => item.toJson()).toList(),
+    };
+  }
 }
 
 class StatsOverview {
@@ -243,6 +451,7 @@ class StatsOverview {
   final int totalStudyTime;
   final int currentStreak;
   final Map<String, dynamic> subjectStats;
+  final List<AccuracyTrendPoint> accuracyTrend;
 
   StatsOverview({
     required this.totalQuestions,
@@ -251,6 +460,7 @@ class StatsOverview {
     required this.totalStudyTime,
     required this.currentStreak,
     required this.subjectStats,
+    required this.accuracyTrend,
   });
 
   factory StatsOverview.fromJson(Map<String, dynamic> json) {
@@ -261,6 +471,32 @@ class StatsOverview {
       totalStudyTime: json['total_study_time'] ?? 0,
       currentStreak: json['current_streak'] ?? 0,
       subjectStats: json['subject_stats'] ?? {},
+      accuracyTrend: (json['accuracy_trend'] as List? ?? [])
+          .map((item) => AccuracyTrendPoint.fromJson(item))
+          .toList(),
+    );
+  }
+}
+
+class AccuracyTrendPoint {
+  final String date;
+  final int totalQuestions;
+  final int correctCount;
+  final double accuracyRate;
+
+  AccuracyTrendPoint({
+    required this.date,
+    required this.totalQuestions,
+    required this.correctCount,
+    required this.accuracyRate,
+  });
+
+  factory AccuracyTrendPoint.fromJson(Map<String, dynamic> json) {
+    return AccuracyTrendPoint(
+      date: json['date'] ?? '',
+      totalQuestions: json['total_questions'] ?? 0,
+      correctCount: json['correct_count'] ?? 0,
+      accuracyRate: (json['accuracy_rate'] ?? 0.0).toDouble(),
     );
   }
 }

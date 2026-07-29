@@ -10,11 +10,11 @@ MedExam AI 是一款医考培训产品，包含学员端、独立管理后台和
 - 首页学习闭环：今日学习任务、今日数据、推荐下一步、一键开始今日任务、继续学习。
 - 考试分类：执业资格、初级职称、中级职称、高级职称。
 - 专项练习：章节练习、未做题、错题复习、高频考点、随机练习。
-- 模拟考试：按当前考试分类抽取真题/模考题。
-- 课程学习：直播课、录播课，课程可关联章节题库并进入课后练习。
+- 模拟考试：按当前考试分类抽取真题/模考题，支持查看每一次模考记录和报告。
+- 课程学习：直播课、录播课，课程可关联章节题库并进入课前摸底、课后练习和课程错题复习。
 - 学习中心：学习计划、今日任务、错题复习、今日统计。
-- 错题本：错题详情、答案解析、复习次数、掌握状态。
-- AI 答疑：医学考试学习问答、会话历史。
+- 错题本：错题详情、答案解析、错因标记、复习日历、智能复盘、掌握状态。
+- AI 答疑：医学考试学习问答、会话历史、收藏学习档案、AI 学习建议、AI 错题讲解、AI 模考报告。
 
 ### 管理后台
 
@@ -152,9 +152,12 @@ python3 ../scripts/serve_web.py --directory build/web --host 127.0.0.1 --port 52
 - `GET /api/questions/chapters`
 - `GET /api/questions/practice`
   - 支持 `mode=chapter|unanswered|wrong|tag|random`
+  - 支持 `exam_category`、`chapter_id`、`tag`、`question_ids`、`limit`
 - `GET /api/questions/exam`
 - `POST /api/questions/submit`
 - `POST /api/questions/exam/submit`
+- `GET /api/questions/exam/attempts`
+- `GET /api/questions/exam/attempts/{attempt_id}`
 
 ### 学习
 
@@ -163,8 +166,24 @@ python3 ../scripts/serve_web.py --directory build/web --host 127.0.0.1 --port 52
 - `GET /api/study/today`
 - `GET /api/study/wrong`
 - `POST /api/study/wrong/{wrong_id}/review`
+- `PUT /api/study/wrong/{wrong_id}/reason`
+- `GET /api/study/wrong/calendar`
+- `GET /api/study/wrong/review-plan`
 - `GET /api/study/stats/today`
 - `GET /api/study/stats/overview`
+- `GET /api/study/prescription`
+
+### AI 学习
+
+- `POST /api/ai/chat`
+- `GET /api/ai/history`
+- `GET /api/ai/sessions`
+- `GET /api/ai/collections`
+- `POST /api/ai/{message_id}/collect`
+- `POST /api/ai/study-advice`
+- `POST /api/ai/wrong-explain`
+- `POST /api/ai/exam-report`
+- `POST /api/ai/learning-path`
 
 ### 管理后台
 
@@ -191,6 +210,8 @@ AI_MODEL=Qwen/Qwen2.5-7B-Instruct
 ```
 
 本地数据库、备份、环境变量和构建产物不提交到 Git：
+
+Flutter 应用的 `app/pubspec.lock` 建议提交，保证本地和后续部署依赖版本一致。
 
 - `backend/medexam.db`
 - `backend/backups/`

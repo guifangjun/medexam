@@ -42,6 +42,7 @@ backend/backups/
 .pub-cache/
 .pub/
 pubspec.lock
+!app/pubspec.lock
 build/
 app/build/
 app/.dart_tool/

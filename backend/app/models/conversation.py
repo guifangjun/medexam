@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, JSON
 from sqlalchemy.sql import func
+from datetime import datetime
 from app.core.database import Base
 
 
@@ -12,9 +13,10 @@ class AIConversation(Base):
     session_id = Column(String(100), nullable=False)  # 对话会话 ID
     message_type = Column(String(10), nullable=False)  # user/assistant
     content = Column(Text, nullable=False)
+    exam_category = Column(String(50), nullable=True)  # 关联考试分类
     related_question_id = Column(Integer, ForeignKey("questions.id"), nullable=True)  # 关联题目
     is_collected = Column(Boolean, default=False)  # 是否收藏
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=datetime.now, server_default=func.now())
 
 
 class KnowledgePoint(Base):
@@ -29,4 +31,4 @@ class KnowledgePoint(Base):
     related_points = Column(JSON, default=list)  # 相关知识点
     difficulty = Column(Integer, default=3)  # 1-5
     exam_frequency = Column(Integer, default=0)  # 考试频次
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=datetime.now, server_default=func.now())

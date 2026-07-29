@@ -1,6 +1,7 @@
 class Question {
   final int id;
   final int chapterId;
+  final String? examCategory;
   final String questionType; // single/multi/case
   final String content;
   final Map<String, String> options;
@@ -15,6 +16,7 @@ class Question {
   Question({
     required this.id,
     required this.chapterId,
+    this.examCategory,
     required this.questionType,
     required this.content,
     required this.options,
@@ -31,6 +33,7 @@ class Question {
     return Question(
       id: json['id'],
       chapterId: json['chapter_id'],
+      examCategory: json['exam_category'],
       questionType: json['question_type'] ?? 'single',
       content: json['content'],
       options: Map<String, String>.from(json['options'] ?? {}),
@@ -39,7 +42,7 @@ class Question {
       difficulty: json['difficulty'] ?? 3,
       isRealExam: json['is_real_exam'] ?? false,
       examYear: json['exam_year'],
-      tags: List<String>.from(json['知识点'] ?? []),
+      tags: List<String>.from(json['tags'] ?? json['知识点'] ?? []),
       createdAt: DateTime.parse(json['created_at']),
     );
   }
@@ -103,6 +106,7 @@ class ExamQuestionResult {
   final String? explanation;
   final String content;
   final Map<String, String> options;
+  final String? chapterName;
   final List<String> tags;
 
   ExamQuestionResult({
@@ -113,6 +117,7 @@ class ExamQuestionResult {
     this.explanation,
     required this.content,
     required this.options,
+    this.chapterName,
     required this.tags,
   });
 
@@ -125,7 +130,8 @@ class ExamQuestionResult {
       explanation: json['explanation'],
       content: json['content'],
       options: Map<String, String>.from(json['options'] ?? {}),
-      tags: List<String>.from(json['知识点'] ?? []),
+      chapterName: json['chapter_name'],
+      tags: List<String>.from(json['tags'] ?? json['知识点'] ?? []),
     );
   }
 }
@@ -144,6 +150,7 @@ class ExamResult {
   final int timeSpent;
   final List<ExamQuestionResult> wrongQuestions;
   final List<ExamQuestionResult> results;
+  final AIExamReportCache? aiReport;
 
   ExamResult({
     this.id,
@@ -159,11 +166,12 @@ class ExamResult {
     required this.timeSpent,
     required this.wrongQuestions,
     required this.results,
+    this.aiReport,
   });
 
   factory ExamResult.fromJson(Map<String, dynamic> json) {
     return ExamResult(
-      id: json['id'],
+      id: json['id'] ?? json['attempt_id'],
       examCategory: json['exam_category'],
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
@@ -182,6 +190,9 @@ class ExamResult {
       results: (json['results'] as List)
           .map((item) => ExamQuestionResult.fromJson(item))
           .toList(),
+      aiReport: json['ai_report'] is Map<String, dynamic>
+          ? AIExamReportCache.fromJson(json['ai_report'])
+          : null,
     );
   }
 
@@ -190,8 +201,21 @@ class ExamResult {
 
   Map<String, int> get weakTagCounts {
     final counts = <String, int>{};
+    const genericTags = {
+      '执业资格',
+      '执业医师',
+      '助理医师',
+      '初级职称',
+      '中级职称',
+      '高级职称',
+    };
     for (final item in wrongQuestions) {
-      for (final tag in item.tags) {
+      final focusedTags =
+          item.tags.where((tag) => !genericTags.contains(tag)).toList();
+      final tags = focusedTags.isNotEmpty
+          ? focusedTags
+          : [if (item.chapterName != null) item.chapterName!];
+      for (final tag in tags) {
         counts[tag] = (counts[tag] ?? 0) + 1;
       }
     }
@@ -220,6 +244,38 @@ class ExamResult {
       advice.add('高频失分知识点：${topTags.join('、')}，建议优先复习对应课程和章节题库。');
     }
     return advice;
+  }
+}
+
+class AIExamReportCache {
+  final String title;
+  final String content;
+  final List<String> actions;
+  final bool isDemo;
+  final String? sessionId;
+  final int? userMessageId;
+  final int? assistantMessageId;
+
+  AIExamReportCache({
+    required this.title,
+    required this.content,
+    required this.actions,
+    required this.isDemo,
+    this.sessionId,
+    this.userMessageId,
+    this.assistantMessageId,
+  });
+
+  factory AIExamReportCache.fromJson(Map<String, dynamic> json) {
+    return AIExamReportCache(
+      title: json['title'] ?? 'AI 模考报告',
+      content: json['content'] ?? '',
+      actions: List<String>.from(json['actions'] ?? []),
+      isDemo: json['is_demo'] ?? false,
+      sessionId: json['session_id'],
+      userMessageId: json['user_message_id'],
+      assistantMessageId: json['assistant_message_id'],
+    );
   }
 }
 

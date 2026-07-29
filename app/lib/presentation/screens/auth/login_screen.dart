@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/providers/auth_provider.dart';
+import '../../../core/constants/api_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/app_messenger.dart';
 import '../../widgets/app_glass.dart';
@@ -24,6 +27,10 @@ class _LoginScreenState extends State<LoginScreen>
   bool _isLogin = true;
   bool _useSmsLogin = true;
   bool _obscurePassword = true;
+  bool _isSendingSms = false;
+  int _smsCooldownSeconds = 0;
+  Timer? _smsCooldownTimer;
+  String _targetExam = AppConstants.examCategories.first;
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
 
@@ -45,6 +52,7 @@ class _LoginScreenState extends State<LoginScreen>
     _phoneController.dispose();
     _smsCodeController.dispose();
     _fullNameController.dispose();
+    _smsCooldownTimer?.cancel();
     _animController.dispose();
     super.dispose();
   }
@@ -69,6 +77,7 @@ class _LoginScreenState extends State<LoginScreen>
         phone: _phoneController.text.trim(),
         smsCode: _smsCodeController.text.trim(),
         password: _passwordController.text,
+        targetExam: _targetExam,
         fullName: _fullNameController.text.trim().isNotEmpty
             ? _fullNameController.text.trim()
             : null,
@@ -96,6 +105,7 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _sendSmsCode() async {
+    if (_isSendingSms || _smsCooldownSeconds > 0) return;
     final phone =
         (_isLogin ? _usernameController.text : _phoneController.text).trim();
     if (phone.length != 11 || int.tryParse(phone) == null) {
@@ -107,10 +117,15 @@ class _LoginScreenState extends State<LoginScreen>
       );
       return;
     }
-    final code = await context.read<AuthProvider>().sendSmsCode(phone);
+    setState(() => _isSendingSms = true);
+    final code = await context
+        .read<AuthProvider>()
+        .sendSmsCode(phone, purpose: _isLogin ? 'login' : 'register');
     if (!mounted) return;
+    setState(() => _isSendingSms = false);
     if (code != null) {
       _smsCodeController.text = code;
+      _startSmsCooldown();
       rootScaffoldMessengerKey.currentState?.showSnackBar(
         SnackBar(
           content: Text('验证码已发送。本地演示验证码：$code'),
@@ -125,6 +140,29 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
+  void _startSmsCooldown() {
+    _smsCooldownTimer?.cancel();
+    setState(() => _smsCooldownSeconds = 60);
+    _smsCooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_smsCooldownSeconds <= 1) {
+        timer.cancel();
+        setState(() => _smsCooldownSeconds = 0);
+      } else {
+        setState(() => _smsCooldownSeconds--);
+      }
+    });
+  }
+
+  void _resetSmsState() {
+    _smsCooldownTimer?.cancel();
+    _smsCooldownSeconds = 0;
+    _isSendingSms = false;
+  }
+
   @override
   Widget build(BuildContext context) {
     return GlassScaffold(
@@ -132,14 +170,19 @@ class _LoginScreenState extends State<LoginScreen>
         child: FadeTransition(
           opacity: _fadeAnim,
           child: SingleChildScrollView(
-            padding: EdgeInsets.all(AppTheme.spaceLg),
+            padding: EdgeInsets.fromLTRB(
+              AppTheme.spaceLg,
+              AppTheme.spaceLg,
+              AppTheme.spaceLg,
+              AppTheme.spaceLg + 36,
+            ),
             child: Column(
               children: [
-                const SizedBox(height: 48),
+                const SizedBox(height: 16),
                 // Logo
                 Container(
-                  width: 88,
-                  height: 88,
+                  width: 72,
+                  height: 72,
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.86),
                     borderRadius: BorderRadius.circular(24),
@@ -148,15 +191,15 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                   child: const Icon(
                     Icons.medical_services_outlined,
-                    size: 44,
+                    size: 36,
                     color: AppTheme.primary,
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 12),
                 const Text(
                   'MedExam AI',
                   style: TextStyle(
-                    fontSize: 30,
+                    fontSize: 28,
                     fontWeight: FontWeight.w800,
                     color: AppTheme.textPrimary,
                     letterSpacing: -0.5,
@@ -170,11 +213,11 @@ class _LoginScreenState extends State<LoginScreen>
                     color: AppTheme.textSecondary,
                   ),
                 ),
-                const SizedBox(height: 48),
+                const SizedBox(height: 16),
                 // 表单卡片
                 GlassCard(
                   width: double.infinity,
-                  padding: EdgeInsets.all(AppTheme.spaceLg),
+                  padding: EdgeInsets.all(AppTheme.spaceMd),
                   radius: AppTheme.radiusXl,
                   tint: Colors.white.withOpacity(0.82),
                   borderColor: Colors.white.withOpacity(0.92),
@@ -196,7 +239,7 @@ class _LoginScreenState extends State<LoginScreen>
                           color: AppTheme.textSecondary,
                         ),
                       ),
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 20),
                       Form(
                         key: _formKey,
                         child: Column(
@@ -208,7 +251,7 @@ class _LoginScreenState extends State<LoginScreen>
                                 hint: '你的姓名（选填）',
                                 icon: Icons.person_outline,
                               ),
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 12),
                               _buildField(
                                 controller: _phoneController,
                                 label: '手机号',
@@ -227,17 +270,16 @@ class _LoginScreenState extends State<LoginScreen>
                                   return null;
                                 },
                               ),
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 12),
+                              _buildTargetExamSelector(),
+                              const SizedBox(height: 12),
                               _buildField(
                                 controller: _smsCodeController,
                                 label: '手机验证码',
                                 hint: '请输入验证码',
                                 icon: Icons.verified_outlined,
                                 keyboardType: TextInputType.number,
-                                suffix: TextButton(
-                                  onPressed: _sendSmsCode,
-                                  child: const Text('获取验证码'),
-                                ),
+                                suffix: _buildSmsCodeButton(),
                                 validator: (v) {
                                   if (!_isLogin && (v == null || v.isEmpty)) {
                                     return '请输入验证码';
@@ -248,7 +290,7 @@ class _LoginScreenState extends State<LoginScreen>
                                   return null;
                                 },
                               ),
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 12),
                             ],
                             if (_isLogin) ...[
                               _buildField(
@@ -268,9 +310,9 @@ class _LoginScreenState extends State<LoginScreen>
                                   return null;
                                 },
                               ),
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 12),
                               _buildLoginModeSwitch(),
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 12),
                             ],
                             if (_isLogin && _useSmsLogin) ...[
                               _buildField(
@@ -279,10 +321,7 @@ class _LoginScreenState extends State<LoginScreen>
                                 hint: '请输入验证码',
                                 icon: Icons.verified_outlined,
                                 keyboardType: TextInputType.number,
-                                suffix: TextButton(
-                                  onPressed: _sendSmsCode,
-                                  child: const Text('获取验证码'),
-                                ),
+                                suffix: _buildSmsCodeButton(),
                                 validator: (v) {
                                   if (v == null || v.isEmpty) {
                                     return '请输入验证码';
@@ -324,7 +363,11 @@ class _LoginScreenState extends State<LoginScreen>
                           ],
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 18),
+                      if (_isLogin) ...[
+                        _buildDemoAccountButton(),
+                        const SizedBox(height: 12),
+                      ],
                       Consumer<AuthProvider>(
                         builder: (context, auth, _) {
                           return SizedBox(
@@ -359,7 +402,7 @@ class _LoginScreenState extends State<LoginScreen>
                           );
                         },
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -375,6 +418,8 @@ class _LoginScreenState extends State<LoginScreen>
                                 _isLogin = !_isLogin;
                                 _useSmsLogin = _isLogin;
                                 _smsCodeController.clear();
+                                _passwordController.clear();
+                                _resetSmsState();
                               });
                               _animController.reset();
                               _animController.forward();
@@ -392,27 +437,67 @@ class _LoginScreenState extends State<LoginScreen>
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
-                TextButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _isLogin = true;
-                      _useSmsLogin = false;
-                      _usernameController.text = '13800000000';
-                      _passwordController.text = 'demo123';
-                    });
-                  },
-                  icon: const Icon(Icons.account_circle_outlined, size: 18),
-                  label: const Text('使用演示账号 13800000000 / demo123'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppTheme.primary,
-                  ),
-                ),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildDemoAccountButton() {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+      onTap: () {
+        setState(() {
+          _isLogin = true;
+          _useSmsLogin = false;
+          _usernameController.text = '13800000000';
+          _passwordController.text = 'demo123';
+          _smsCodeController.clear();
+          _resetSmsState();
+        });
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppTheme.primary.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+          border: Border.all(color: AppTheme.primary.withOpacity(0.18)),
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.account_circle_outlined,
+              size: 18,
+              color: AppTheme.primary,
+            ),
+            SizedBox(width: 8),
+            Text(
+              '使用演示账号 13800000000 / demo123',
+              style: TextStyle(
+                color: AppTheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSmsCodeButton() {
+    final disabled = _isSendingSms || _smsCooldownSeconds > 0;
+    final label = _isSendingSms
+        ? '发送中...'
+        : _smsCooldownSeconds > 0
+            ? '${_smsCooldownSeconds}s'
+            : '获取验证码';
+    return TextButton(
+      onPressed: disabled ? null : _sendSmsCode,
+      child: Text(label),
     );
   }
 
@@ -455,16 +540,44 @@ class _LoginScreenState extends State<LoginScreen>
             selected: _useSmsLogin,
             icon: Icons.sms_outlined,
             label: '验证码登录',
-            onTap: () => setState(() => _useSmsLogin = true),
+            onTap: () => setState(() {
+              _useSmsLogin = true;
+              _passwordController.clear();
+              _resetSmsState();
+            }),
           ),
           _buildLoginModeItem(
             selected: !_useSmsLogin,
             icon: Icons.lock_outline,
             label: '密码登录',
-            onTap: () => setState(() => _useSmsLogin = false),
+            onTap: () => setState(() {
+              _useSmsLogin = false;
+              _smsCodeController.clear();
+              _resetSmsState();
+            }),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTargetExamSelector() {
+    return DropdownButtonFormField<String>(
+      value: _targetExam,
+      decoration: const InputDecoration(
+        labelText: '考试分类',
+        prefixIcon: Icon(Icons.category_outlined, size: 20),
+      ),
+      items: AppConstants.examCategories
+          .map((category) => DropdownMenuItem(
+                value: category,
+                child: Text(category),
+              ))
+          .toList(),
+      onChanged: (value) {
+        if (value == null) return;
+        setState(() => _targetExam = value);
+      },
     );
   }
 

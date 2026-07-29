@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/providers/question_provider.dart';
+import '../../../data/providers/study_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../widgets/app_glass.dart';
 
@@ -13,41 +14,234 @@ class PracticeScreen extends StatefulWidget {
 }
 
 class _PracticeScreenState extends State<PracticeScreen> {
+  DateTime _questionStartedAt = DateTime.now();
+  int? _activeQuestionId;
+
   @override
   void initState() {
     super.initState();
+    _questionStartedAt = DateTime.now();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<QuestionProvider>().loadChapters();
+      final provider = context.read<QuestionProvider>();
+      if (!provider.hasPracticeQuestions && provider.chapters.isEmpty) {
+        provider.loadChapters();
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
-      appBar: AppBar(
-        title: Text(context.watch<QuestionProvider>().hasQuestions
-            ? context.watch<QuestionProvider>().practiceTitle ?? '刷题'
-            : '专项练习'),
-        actions: [
-          if (context.watch<QuestionProvider>().hasQuestions)
-            IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () => context.read<QuestionProvider>().reset(),
-            ),
-        ],
-      ),
-      body: Consumer<QuestionProvider>(
-        builder: (context, provider, _) {
-          if (provider.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (!provider.hasQuestions) {
-            return _buildChapterList(context, provider);
-          }
-          return _buildQuestionView(context, provider);
-        },
+    final provider = context.watch<QuestionProvider>();
+    final hasActivePractice =
+        provider.hasPracticeQuestions || provider.practiceAttempted;
+    return PopScope(
+      canPop: !hasActivePractice,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && hasActivePractice) {
+          _confirmExitPractice(context);
+        }
+      },
+      child: GlassScaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: Navigator.canPop(context)
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                  tooltip: '返回',
+                  onPressed: hasActivePractice
+                      ? () => _confirmExitPractice(context)
+                      : () => Navigator.pop(context),
+                )
+              : null,
+          title: Text(_titleFor(provider)),
+          actions: [
+            if (hasActivePractice)
+              IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: '退出练习',
+                onPressed: () => _confirmExitPractice(context),
+              ),
+          ],
+        ),
+        body: Consumer<QuestionProvider>(
+          builder: (context, provider, _) {
+            if (provider.isLoading) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (!provider.hasPracticeQuestions) {
+              if (provider.practiceAttempted &&
+                  provider.practiceMode != 'exam') {
+                return _buildPracticeEmpty(context, provider);
+              }
+              return _buildChapterList(context, provider);
+            }
+            return _buildQuestionView(context, provider);
+          },
+        ),
       ),
     );
+  }
+
+  String _titleFor(QuestionProvider provider) {
+    if ((provider.hasPracticeQuestions || provider.practiceAttempted) &&
+        provider.practiceMode != 'exam') {
+      return provider.practiceTitle ?? '刷题';
+    }
+    return '专项练习';
+  }
+
+  Future<void> _confirmExitPractice(BuildContext context) async {
+    final provider = context.read<QuestionProvider>();
+    final shouldConfirm = provider.hasPracticeQuestions;
+    var shouldExit = true;
+    if (shouldConfirm) {
+      shouldExit = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: const Text('退出本次练习？'),
+              content: const Text('当前练习进度会被清空，已提交的答题记录会保留。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('继续练习'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('退出'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+    }
+    if (!shouldExit || !context.mounted) return;
+    final canReturnToPreviousPage = Navigator.canPop(context);
+    provider.reset();
+    if (canReturnToPreviousPage) {
+      Navigator.pop(context);
+    } else if (provider.chapters.isEmpty) {
+      await provider.loadChapters();
+    }
+  }
+
+  Widget _buildPracticeEmpty(BuildContext context, QuestionProvider provider) {
+    final title = provider.practiceTitle ?? _emptyTitle(provider.practiceMode);
+    final canSwitchToCurrentChapter = provider.practiceMode != 'chapter' &&
+        provider.practiceChapterId != null;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: GlassCard(
+          padding: const EdgeInsets.all(24),
+          tint: Colors.white.withOpacity(0.82),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: const Icon(
+                  Icons.task_alt_rounded,
+                  color: AppTheme.primary,
+                  size: 34,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _emptyMessage(provider.practiceMode, provider.error),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppTheme.textSecondary,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    if (canSwitchToCurrentChapter) {
+                      await provider.loadPracticeQuestions(
+                        chapterId: provider.practiceChapterId,
+                        mode: 'chapter',
+                        title: _chapterPracticeFallbackTitle(provider),
+                      );
+                      return;
+                    }
+                    provider.reset();
+                    if (provider.chapters.isEmpty) {
+                      await provider.loadChapters();
+                    }
+                  },
+                  child: Text(
+                    canSwitchToCurrentChapter ? '切换到本章节练习' : '返回章节练习',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _emptyTitle(String mode) {
+    switch (mode) {
+      case 'unanswered':
+        return '未做题练习';
+      case 'wrong':
+        return '错题复习';
+      case 'tag':
+        return '高频考点';
+      case 'random':
+        return '随机练习';
+      default:
+        return '章节练习';
+    }
+  }
+
+  String _chapterPracticeFallbackTitle(QuestionProvider provider) {
+    final currentTitle = provider.practiceTitle?.trim();
+    if (currentTitle == null || currentTitle.isEmpty) return '本章节练习';
+    final parts = currentTitle
+        .split('·')
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.length <= 1) return '本章节练习';
+    return '${parts.first} · 本章节练习';
+  }
+
+  String _emptyMessage(String mode, String? error) {
+    if (error != null && error != '暂无题目') return error;
+    switch (mode) {
+      case 'unanswered':
+        return '这个范围内暂时没有未做题，可以切换章节练习或课后练习继续巩固。';
+      case 'wrong':
+        return '当前没有待复习错题，继续做题后错题会自动进入错题本。';
+      case 'tag':
+        return '当前考试分类暂未识别到高频考点题，可以先按章节练习。';
+      case 'random':
+        return '当前考试分类暂无可随机抽取的题目。';
+      default:
+        return '暂无题目，请先在后台为该章节添加题目。';
+    }
   }
 
   Widget _buildChapterList(BuildContext context, QuestionProvider provider) {
@@ -167,9 +361,9 @@ class _PracticeScreenState extends State<PracticeScreen> {
       crossAxisCount: 2,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 12,
-      childAspectRatio: 2.35,
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
+      childAspectRatio: 3.4,
       children: [
         _ModeCard(
           icon: Icons.playlist_add_check_rounded,
@@ -188,9 +382,9 @@ class _PracticeScreenState extends State<PracticeScreen> {
         _ModeCard(
           icon: Icons.local_fire_department_rounded,
           title: '高频考点',
-          subtitle: '按标签抽题',
+          subtitle: '自动匹配重点',
           color: Colors.orange,
-          onTap: () => _startMode(context, provider, mode: 'tag', tag: '内科学'),
+          onTap: () => _startMode(context, provider, mode: 'tag'),
         ),
         _ModeCard(
           icon: Icons.shuffle_rounded,
@@ -222,6 +416,10 @@ class _PracticeScreenState extends State<PracticeScreen> {
   Widget _buildQuestionView(BuildContext context, QuestionProvider provider) {
     final question = provider.currentQuestion!;
     final result = provider.lastResult;
+    if (_activeQuestionId != question.id) {
+      _activeQuestionId = question.id;
+      _questionStartedAt = DateTime.now();
+    }
 
     return Column(
       children: [
@@ -309,8 +507,40 @@ class _PracticeScreenState extends State<PracticeScreen> {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: GlassCard(
-                      onTap: result == null
-                          ? () => provider.submitAnswer(entry.key)
+                      onTap: result == null && !provider.isLoading
+                          ? () async {
+                              final seconds = DateTime.now()
+                                  .difference(_questionStartedAt)
+                                  .inSeconds
+                                  .clamp(1, 86400);
+                              final submitted = await provider.submitAnswer(
+                                entry.key,
+                                timeSpent: seconds,
+                              );
+                              if (!context.mounted) return;
+                              if (submitted != null) {
+                                final examCategory = context
+                                    .read<QuestionProvider>()
+                                    .examCategory;
+                                final study = context.read<StudyProvider>();
+                                await study.loadTodayStats(
+                                    examCategory: examCategory);
+                                await study.loadTodayTask(
+                                    examCategory: examCategory);
+                                await study.loadPrescription(
+                                    examCategory: examCategory);
+                                await study.loadStatsOverview(
+                                    examCategory: examCategory);
+                              }
+                              if (!context.mounted) return;
+                              final error =
+                                  context.read<QuestionProvider>().error;
+                              if (submitted == null && error != null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(error)),
+                                );
+                              }
+                            }
                           : null,
                       radius: 14,
                       padding: const EdgeInsets.all(16),
@@ -405,7 +635,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
                 child: ElevatedButton(
                   onPressed: () => provider.isLastQuestion
                       ? provider.reset()
-                      : provider.nextQuestion(),
+                      : _goToNextQuestion(provider),
                   child: Text(provider.isLastQuestion ? '完成刷题' : '下一题'),
                 ),
               ),
@@ -413,6 +643,10 @@ class _PracticeScreenState extends State<PracticeScreen> {
           ),
       ],
     );
+  }
+
+  void _goToNextQuestion(QuestionProvider provider) {
+    provider.nextQuestion();
   }
 }
 
@@ -455,18 +689,18 @@ class _ModeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GlassCard(
       onTap: onTap,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       tint: Colors.white.withOpacity(0.78),
       child: Row(
         children: [
           Container(
-            width: 38,
-            height: 38,
+            width: 34,
+            height: 34,
             decoration: BoxDecoration(
               color: color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(11),
             ),
-            child: Icon(icon, color: color, size: 20),
+            child: Icon(icon, color: color, size: 19),
           ),
           const SizedBox(width: 10),
           Expanded(

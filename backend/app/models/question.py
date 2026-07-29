@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.sql import func
+from datetime import datetime
 from app.core.database import Base
 
 
@@ -30,7 +31,7 @@ class Question(Base):
     is_real_exam = Column(Boolean, default=False)  # 是否真题
     exam_year = Column(Integer, nullable=True)  # 真题年份
     知识点 = Column(JSON, default=list)  # 相关知识点标签
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=datetime.now, server_default=func.now())
 
 
 class QuestionRecord(Base):
@@ -45,7 +46,7 @@ class QuestionRecord(Base):
     is_wrong = Column(Boolean, default=False)  # 是否进入错题本
     wrong_reason = Column(String(50), nullable=True)  # 粗心/概念不清/记忆模糊
     time_spent = Column(Integer, default=0)  # 花费秒数
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=datetime.now, server_default=func.now())
 
 
 class ExamAttempt(Base):
@@ -64,4 +65,4 @@ class ExamAttempt(Base):
     accuracy_rate = Column(Float, default=0)
     time_spent = Column(Integer, default=0)
     report = Column(JSON, default=dict)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=datetime.now, server_default=func.now())
