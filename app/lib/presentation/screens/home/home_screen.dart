@@ -8,6 +8,7 @@ import '../../../data/providers/question_provider.dart';
 import '../../../data/providers/study_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../widgets/app_glass.dart';
+import '../../widgets/exam_category_picker.dart';
 import '../practice/practice_screen.dart';
 import '../exam/exam_screen.dart';
 import '../ai_chat/ai_chat_screen.dart';
@@ -28,11 +29,19 @@ class HomeScreen extends StatefulWidget {
 
 class HomeScreenState extends State<HomeScreen> {
   int currentIndex = 0;
+  int courseInitialTab = 0;
   int? _syncedUserId;
   String? _syncedExamCategory;
 
   void goToTab(int index) {
     setState(() => currentIndex = index);
+  }
+
+  void goToCourseTab(int tabIndex) {
+    setState(() {
+      courseInitialTab = tabIndex.clamp(0, 1);
+      currentIndex = 2;
+    });
   }
 
   @override
@@ -53,7 +62,7 @@ class HomeScreenState extends State<HomeScreen> {
   void _syncUserExamCategory(AuthProvider auth) {
     final user = auth.user;
     if (user == null) return;
-    final category = AppConstants.normalizeExamCategory(user.targetExam);
+    final category = user.targetExam;
     if (_syncedUserId == user.id && _syncedExamCategory == category) return;
     final isDifferentUser = _syncedUserId != null && _syncedUserId != user.id;
     _syncedUserId = user.id;
@@ -126,7 +135,10 @@ class HomeScreenState extends State<HomeScreen> {
         final pages = <Widget>[
           _HomeTab(homeState: this),
           const PracticeScreen(),
-          const CourseScreen(),
+          CourseScreen(
+            key: ValueKey('course-$courseInitialTab'),
+            initialTab: courseInitialTab,
+          ),
           const ExamScreen(),
           const _StudyTab(),
         ];
@@ -261,67 +273,111 @@ class _HomeTabState extends State<_HomeTab> {
     final prescription = study.prescription;
     final questionProvider = context.watch<QuestionProvider>();
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        await study.loadStudyPlans(examCategory: examCategory);
-        await study.loadTodayTask(examCategory: examCategory);
-        await study.loadTodayStats(examCategory: examCategory);
-        await study.loadPrescription(examCategory: examCategory);
-        await study.loadWrongReviewCalendar(examCategory: examCategory);
-        await study.loadWrongReviewPlan(examCategory: examCategory);
-      },
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: Column(
-          children: [
-            _buildHeader(user, stats, examCategory, task, plan, prescription),
-            const SizedBox(height: 20),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+    return Column(
+      children: [
+        _buildStickyExamBar(examCategory),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              await study.loadStudyPlans(examCategory: examCategory);
+              await study.loadTodayTask(examCategory: examCategory);
+              await study.loadTodayStats(examCategory: examCategory);
+              await study.loadPrescription(examCategory: examCategory);
+              await study.loadWrongReviewCalendar(examCategory: examCategory);
+              await study.loadWrongReviewPlan(examCategory: examCategory);
+            },
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('快捷学习',
-                      style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.textPrimary)),
-                  const SizedBox(height: 14),
-                  _buildQuickActions(),
-                  const SizedBox(height: 24),
-                  _buildSectionHeader(
-                      '今日数据',
-                      () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const StatsScreen()))),
-                  const SizedBox(height: 14),
-                  _buildStatsRow(stats),
-                  const SizedBox(height: 24),
-                  _buildLearningCommandCard(task, plan, stats, prescription),
-                  const SizedBox(height: 14),
-                  _buildAiCoachCard(stats, prescription, examCategory),
-                  if (questionProvider.recentStudyTitle != null) ...[
-                    const SizedBox(height: 14),
-                    _buildContinueCard(questionProvider),
-                  ],
-                  const SizedBox(height: 24),
-                  _buildWeakAreaMap(prescription),
-                  if (task != null) ...[
-                    const SizedBox(height: 24),
-                    const Text('今日任务',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.textPrimary)),
-                    const SizedBox(height: 14),
-                    _buildTaskCard(task, plan),
-                  ],
-                  const SizedBox(height: 32),
+                  _buildHeader(
+                      user, stats, examCategory, task, plan, prescription),
+                  const SizedBox(height: 20),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('快捷学习',
+                            style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.textPrimary)),
+                        const SizedBox(height: 14),
+                        _buildQuickActions(),
+                        const SizedBox(height: 24),
+                        _buildSectionHeader(
+                            '今日数据',
+                            () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => const StatsScreen()))),
+                        const SizedBox(height: 14),
+                        _buildStatsRow(stats),
+                        const SizedBox(height: 24),
+                        _buildLearningCommandCard(task, plan, stats,
+                            prescription, study.wrongReviewPlan),
+                        const SizedBox(height: 14),
+                        _buildAiCoachCard(stats, prescription, examCategory),
+                        if (questionProvider.recentStudyTitle != null) ...[
+                          const SizedBox(height: 14),
+                          _buildContinueCard(questionProvider),
+                        ],
+                        const SizedBox(height: 24),
+                        _buildWeakAreaMap(prescription),
+                        if (task != null) ...[
+                          const SizedBox(height: 24),
+                          const Text('今日任务',
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.textPrimary)),
+                          const SizedBox(height: 14),
+                          _buildTaskCard(task, plan),
+                        ],
+                        const SizedBox(height: 32),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
-          ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStickyExamBar(String examCategory) {
+    return GlassPanel(
+      padding: EdgeInsets.zero,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 8, 12, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: ExamCategoryPickerButton(
+                  selected: examCategory,
+                  onChanged: widget.homeState._switchExamCategory,
+                  plain: true,
+                  compact: true,
+                  textStyle: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout_rounded,
+                    color: AppTheme.primary, size: 22),
+                tooltip: '退出登录',
+                onPressed: _confirmLogout,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -355,11 +411,11 @@ class _HomeTabState extends State<_HomeTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '$examCategory备考',
+                      const Text(
+                        '今日学习任务',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
                           color: AppTheme.textPrimary,
@@ -380,24 +436,22 @@ class _HomeTabState extends State<_HomeTab> {
                   ),
                 ),
                 Container(
-                  width: 44,
-                  height: 44,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                   decoration: BoxDecoration(
                     color: AppTheme.accentLight.withOpacity(0.18),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(999),
                   ),
-                  child: IconButton(
-                    icon: const Icon(Icons.logout_rounded,
-                        color: AppTheme.primary, size: 22),
-                    onPressed: _confirmLogout,
+                  child: Text(
+                    examCategory,
+                    style: const TextStyle(
+                      color: AppTheme.primary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
-            _ExamCategorySelector(
-              selected: examCategory,
-              onChanged: widget.homeState._switchExamCategory,
             ),
             const SizedBox(height: 16),
             Wrap(
@@ -542,14 +596,14 @@ class _HomeTabState extends State<_HomeTab> {
         title: '直播课',
         subtitle: '名师带学',
         color: AppTheme.error,
-        onTap: () => widget.homeState.goToTab(2),
+        onTap: () => widget.homeState.goToCourseTab(0),
       ),
       _QuickActionCard(
         icon: Icons.video_library_rounded,
         title: '录播课',
         subtitle: '系统精讲',
         color: AppTheme.success,
-        onTap: () => widget.homeState.goToTab(2),
+        onTap: () => widget.homeState.goToCourseTab(1),
       ),
     ];
     return LayoutBuilder(
@@ -560,7 +614,7 @@ class _HomeTabState extends State<_HomeTab> {
             ? 2.3
             : width >= 620
                 ? 2.0
-                : 1.55;
+                : 1.28;
         return GridView.count(
           crossAxisCount: crossAxisCount,
           shrinkWrap: true,
@@ -607,8 +661,13 @@ class _HomeTabState extends State<_HomeTab> {
             .toList());
   }
 
-  Widget _buildLearningCommandCard(DailyTask? task, StudyPlan? plan,
-      dynamic stats, StudyPrescription? prescription) {
+  Widget _buildLearningCommandCard(
+    DailyTask? task,
+    StudyPlan? plan,
+    dynamic stats,
+    StudyPrescription? prescription,
+    WrongReviewPlan? wrongPlan,
+  ) {
     final target = prescription?.targetQuestions ??
         task?.targetQuestions ??
         plan?.dailyQuestions ??
@@ -621,6 +680,7 @@ class _HomeTabState extends State<_HomeTab> {
         ((prescription?.accuracyRate ?? stats?.accuracyRate ?? 0) * 100)
             .round();
     final progress = target == 0 ? 0.0 : (completed / target).clamp(0.0, 1.0);
+    final pendingWrong = (wrongPlan?.dueToday ?? 0) + (wrongPlan?.overdue ?? 0);
     final title = prescription?.recommendationTitle ?? '开始今日学习';
     final recommendation = prescription?.recommendationReason ??
         (completed == 0
@@ -666,10 +726,22 @@ class _HomeTabState extends State<_HomeTab> {
               style: const TextStyle(
                   fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
           const SizedBox(height: 14),
+          _buildThreeStepLearningPath(
+            completed: completed,
+            target: target,
+            pendingWrong: pendingWrong,
+            prescription: prescription,
+          ),
+          const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () => _startPrescription(prescription),
+              onPressed: () => _startTodayPath(
+                prescription: prescription,
+                pendingWrong: pendingWrong,
+                completed: completed,
+                target: target,
+              ),
               icon: const Icon(Icons.play_arrow_rounded),
               label: const Text('一键开始今日任务'),
             ),
@@ -677,6 +749,115 @@ class _HomeTabState extends State<_HomeTab> {
         ],
       ),
     );
+  }
+
+  Widget _buildThreeStepLearningPath({
+    required int completed,
+    required int target,
+    required int pendingWrong,
+    StudyPrescription? prescription,
+  }) {
+    final steps = [
+      _PathStepData(
+        icon: Icons.playlist_add_check_rounded,
+        title: '练习',
+        subtitle: completed < target ? '补齐今日题量' : '今日题量已达标',
+        active: pendingWrong == 0 && completed < target,
+        done: target > 0 && completed >= target,
+        color: AppTheme.primary,
+      ),
+      _PathStepData(
+        icon: Icons.assignment_late_rounded,
+        title: '错题',
+        subtitle: pendingWrong > 0 ? '$pendingWrong 道待复习' : '暂无到期错题',
+        active: pendingWrong > 0,
+        done: pendingWrong == 0,
+        color: AppTheme.error,
+      ),
+      _PathStepData(
+        icon: Icons.video_library_rounded,
+        title: '课程',
+        subtitle: completed >= target && pendingWrong == 0 ? '看课巩固' : '完成练习后推荐',
+        active: completed >= target && pendingWrong == 0,
+        done: false,
+        color: AppTheme.accent,
+      ),
+    ];
+    return Row(
+      children: steps
+          .map(
+            (step) => Expanded(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                decoration: BoxDecoration(
+                  color: step.active
+                      ? step.color.withOpacity(0.12)
+                      : Colors.white.withOpacity(0.78),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: step.active
+                        ? step.color.withOpacity(0.35)
+                        : AppTheme.divider,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Icon(
+                      step.done ? Icons.check_circle_rounded : step.icon,
+                      color: step.done ? AppTheme.success : step.color,
+                      size: 20,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      step.title,
+                      style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      step.subtitle,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 10,
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  Future<void> _startTodayPath({
+    StudyPrescription? prescription,
+    required int pendingWrong,
+    required int completed,
+    required int target,
+  }) async {
+    if (pendingWrong > 0) {
+      await _loadAndOpenPractice(
+        mode: 'wrong',
+        title: '今日错题复习',
+        emptyMessage: '当前没有可复习错题，已为你切换到今日练习',
+      );
+      return;
+    }
+    if (target <= 0 || completed < target) {
+      await _startPrescription(prescription);
+      return;
+    }
+    widget.homeState.goToCourseTab(1);
   }
 
   Future<void> _startPrescription(StudyPrescription? prescription) async {
@@ -1343,13 +1524,7 @@ class _HomeTabState extends State<_HomeTab> {
 
     setState(() => _isStartingPractice = true);
     try {
-      await provider.loadPracticeQuestions(
-        chapterId: provider.recentChapterId,
-        mode: provider.recentStudyMode ?? 'chapter',
-        tag: provider.recentStudyTag,
-        limit: provider.recentStudyLimit,
-        title: title,
-      );
+      await provider.continueRecentPractice();
       if (!mounted) return;
 
       if (provider.currentQuestions.isEmpty) {
@@ -1450,47 +1625,6 @@ class _HomeTabState extends State<_HomeTab> {
       default:
         return '今日重点：高频考点 + 错题复盘';
     }
-  }
-}
-
-class _ExamCategorySelector extends StatelessWidget {
-  final String selected;
-  final ValueChanged<String> onChanged;
-
-  const _ExamCategorySelector({
-    required this.selected,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: AppConstants.examCategories.map((category) {
-        final isSelected = category == selected;
-        return ChoiceChip(
-          label: Text(category),
-          selected: isSelected,
-          showCheckmark: false,
-          labelStyle: TextStyle(
-            color: isSelected ? Colors.white : AppTheme.textSecondary,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-          selectedColor: AppTheme.primary,
-          backgroundColor: Colors.white.withOpacity(0.72),
-          side: BorderSide(
-            color: isSelected
-                ? AppTheme.primary
-                : AppTheme.primary.withOpacity(0.12),
-          ),
-          onSelected: (_) {
-            onChanged(category);
-          },
-        );
-      }).toList(),
-    );
   }
 }
 
@@ -1595,7 +1729,7 @@ class _QuickActionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GlassCard(
       onTap: onTap,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1608,14 +1742,18 @@ class _QuickActionCard extends StatelessWidget {
             ),
             child: Icon(icon, color: color, size: 22),
           ),
-          const SizedBox(height: 14),
+          const Spacer(),
           Text(title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                   fontSize: 15,
                   color: AppTheme.textPrimary)),
           const SizedBox(height: 2),
           Text(subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style:
                   const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
         ],
@@ -1667,6 +1805,24 @@ class _AiChallengeCopy {
     required this.icon,
     required this.title,
     required this.subtitle,
+  });
+}
+
+class _PathStepData {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool active;
+  final bool done;
+  final Color color;
+
+  const _PathStepData({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.active,
+    required this.done,
+    required this.color,
   });
 }
 

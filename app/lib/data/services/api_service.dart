@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/api_constants.dart';
 
 class ApiService {
@@ -59,8 +60,8 @@ class ApiService {
 
   Future<void> loadToken() async {
     if (kIsWeb) {
-      // Web 环境使用 localStorage
-      _token = await _secureStorage.read(key: 'access_token');
+      final prefs = await SharedPreferences.getInstance();
+      _token = prefs.getString('access_token');
     } else {
       _token = await _secureStorage.read(key: 'access_token');
     }
@@ -68,28 +69,53 @@ class ApiService {
 
   Future<void> setToken(String token) async {
     _token = token;
-    await _secureStorage.write(key: 'access_token', value: token);
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('access_token', token);
+    } else {
+      await _secureStorage.write(key: 'access_token', value: token);
+    }
   }
 
   Future<void> clearToken() async {
     _token = null;
-    await _secureStorage.delete(key: 'access_token');
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('access_token');
+    } else {
+      await _secureStorage.delete(key: 'access_token');
+    }
   }
 
   bool get hasToken => _token != null;
 
   Future<void> loadAdminToken() async {
-    _adminToken = await _secureStorage.read(key: 'admin_access_token');
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      _adminToken = prefs.getString('admin_access_token');
+    } else {
+      _adminToken = await _secureStorage.read(key: 'admin_access_token');
+    }
   }
 
   Future<void> setAdminToken(String token) async {
     _adminToken = token;
-    await _secureStorage.write(key: 'admin_access_token', value: token);
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('admin_access_token', token);
+    } else {
+      await _secureStorage.write(key: 'admin_access_token', value: token);
+    }
   }
 
   Future<void> clearAdminToken() async {
     _adminToken = null;
-    await _secureStorage.delete(key: 'admin_access_token');
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('admin_access_token');
+    } else {
+      await _secureStorage.delete(key: 'admin_access_token');
+    }
   }
 
   bool get hasAdminToken => _adminToken != null;
@@ -148,8 +174,43 @@ class ApiService {
     return _dio.get(ApiConstants.adminMe);
   }
 
-  Future<Response> getAdminDashboard() async {
-    return _dio.get(ApiConstants.adminDashboard);
+  Future<Response> getAdminDashboard({
+    String? examCategory,
+    String? date,
+  }) async {
+    return _dio.get(ApiConstants.adminDashboard, queryParameters: {
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+      if (date != null && date.isNotEmpty) 'date': date,
+    });
+  }
+
+  Future<Response> getAdminExamCategories({
+    bool includeInactive = true,
+  }) async {
+    return _dio.get(ApiConstants.adminExamCategories, queryParameters: {
+      'include_inactive': includeInactive,
+    });
+  }
+
+  Future<Response> getExamCategories() async {
+    return _dio.get(ApiConstants.adminExamCategories, queryParameters: {
+      'include_inactive': false,
+    });
+  }
+
+  Future<Response> createAdminExamCategory(Map<String, dynamic> data) async {
+    return _dio.post(ApiConstants.adminExamCategories, data: data);
+  }
+
+  Future<Response> updateAdminExamCategory(
+      int categoryId, Map<String, dynamic> data) async {
+    return _dio.put('${ApiConstants.adminExamCategories}/$categoryId',
+        data: data);
+  }
+
+  Future<Response> deleteAdminExamCategory(int categoryId) async {
+    return _dio.delete('${ApiConstants.adminExamCategories}/$categoryId');
   }
 
   Future<Response> updateMe(Map<String, dynamic> data) async {
@@ -265,12 +326,14 @@ class ApiService {
   Future<Response> getAdminCourses({
     String? courseType,
     String? examCategory,
+    bool? unlinkedOnly,
   }) async {
     return _dio.get(ApiConstants.adminCourses, queryParameters: {
       if (courseType != null && courseType.isNotEmpty)
         'course_type': courseType,
       if (examCategory != null && examCategory.isNotEmpty)
         'exam_category': examCategory,
+      if (unlinkedOnly != null) 'unlinked_only': unlinkedOnly,
     });
   }
 

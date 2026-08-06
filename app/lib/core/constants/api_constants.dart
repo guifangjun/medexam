@@ -1,6 +1,11 @@
 class ApiConstants {
-  // 后端 API 地址，开发环境指向本机
-  static const String baseUrl = 'http://127.0.0.1:8000';
+  // 后端 API 地址：
+  // - 本地开发默认指向本机
+  // - 公网构建时使用：flutter build web --dart-define=API_BASE_URL=https://your-api.example.com
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://127.0.0.1:8000',
+  );
 
   // API 端点
   static const String auth = '/api/auth';
@@ -37,6 +42,7 @@ class ApiConstants {
   static const String adminLogin = '$admin/auth/login';
   static const String adminMe = '$admin/auth/me';
   static const String adminDashboard = '$admin/dashboard';
+  static const String adminExamCategories = '$admin/exam-categories';
   static const String adminQuestions = '$admin/questions';
   static const String adminCourses = '$admin/courses';
   static const String adminUsers = '$admin/users';
@@ -44,24 +50,66 @@ class ApiConstants {
 
 class AppConstants {
   // 用户备考目标/考试类别
-  static const List<String> examCategories = ['执业资格', '初级职称', '中级职称', '高级职称'];
+  static const List<String> primaryExamCategories = [
+    '执业资格',
+    '初级职称',
+    '中级职称',
+    '高级职称'
+  ];
+
+  static const List<String> examCategories = [
+    '临床执业医师',
+    '临床助理医师',
+    '中医执业医师',
+    '中医助理医师',
+    '口腔执业医师',
+    '口腔助理医师',
+    '中西医执业医师',
+    '中西医助理医师',
+    '乡村全科助理医师',
+    '师承和确有专长',
+    '中医医术确有专长',
+    '公卫执业',
+    '公卫助理',
+    '执业西药师',
+    '执业中药师',
+    '护士执业资格',
+    '国际护士（ISPN）',
+  ];
 
   // 考试类型
   static const List<String> examTypes = ['执业医师', '助理医师'];
 
   static String normalizeExamCategory(String? value) {
     switch (value) {
+      case '临床执业医师':
+      case '临床助理医师':
+      case '中医执业医师':
+      case '中医助理医师':
+      case '口腔执业医师':
+      case '口腔助理医师':
+      case '中西医执业医师':
+      case '中西医助理医师':
+      case '乡村全科助理医师':
+      case '师承和确有专长':
+      case '中医医术确有专长':
+      case '公卫执业':
+      case '公卫助理':
+      case '执业西药师':
+      case '执业中药师':
+      case '护士执业资格':
+      case '国际护士（ISPN）':
       case '初级职称':
       case '中级职称':
       case '高级职称':
         return value!;
       case '执业医师':
+        return '临床执业医师';
       case '助理医师':
-      case '临床执业医师':
-      case '临床助理医师':
+        return '临床助理医师';
       case '执业资格':
       default:
-        return '执业资格';
+        return '临床执业医师';
     }
   }
 

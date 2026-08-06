@@ -10,7 +10,7 @@ class UserBase(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     full_name: Optional[str] = None
-    target_exam: str = "执业资格"
+    target_exam: str = "临床执业医师"
     target_date: Optional[datetime] = None
     daily_goal: int = 20
 

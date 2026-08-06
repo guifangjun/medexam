@@ -24,6 +24,248 @@ String _adminErrorMessage(Object error, String fallback) {
   return fallback;
 }
 
+class _ExamCategoryNode {
+  final int? id;
+  final String name;
+  final int level;
+  final int? parentId;
+
+  const _ExamCategoryNode({
+    required this.id,
+    required this.name,
+    required this.level,
+    required this.parentId,
+  });
+
+  factory _ExamCategoryNode.fromMap(Map<String, dynamic> item) {
+    return _ExamCategoryNode(
+      id: item['id'] is int ? item['id'] : int.tryParse('${item['id']}'),
+      name: '${item['name'] ?? ''}'.trim(),
+      level: item['level'] is int
+          ? item['level']
+          : int.tryParse('${item['level']}') ?? 1,
+      parentId: item['parent_id'] is int
+          ? item['parent_id']
+          : int.tryParse('${item['parent_id']}'),
+    );
+  }
+}
+
+class _ExamCategoryTreeSelect extends StatelessWidget {
+  final List<Map<String, dynamic>> categories;
+  final String? value;
+  final String allLabel;
+  final ValueChanged<String?> onChanged;
+
+  const _ExamCategoryTreeSelect({
+    required this.categories,
+    required this.value,
+    required this.allLabel,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final nodes = _activeNodes;
+    if (nodes.isEmpty) {
+      return DropdownButtonFormField<String?>(
+        initialValue: value,
+        decoration: const InputDecoration(
+          labelText: '考试类别',
+          prefixIcon: Icon(Icons.account_tree_outlined),
+        ),
+        items: [
+          if (allLabel.isNotEmpty)
+            DropdownMenuItem<String?>(value: null, child: Text(allLabel)),
+          ...AppConstants.examCategories.map(
+            (item) => DropdownMenuItem<String?>(value: item, child: Text(item)),
+          ),
+        ],
+        onChanged: onChanged,
+      );
+    }
+
+    final selected = _firstWhereOrNull(nodes, (node) => node.name == value);
+    final selectedPath = _pathFor(selected, nodes);
+    final level1 = _level1Nodes(nodes);
+    final selectedLevel1 = selectedPath.isNotEmpty ? selectedPath[0] : null;
+    final level2 = _childrenOf(selectedLevel1?.id, nodes, level: 2);
+    final selectedLevel2 = selectedPath.length > 1 ? selectedPath[1] : null;
+    final level3 = _childrenOf(selectedLevel2?.id, nodes, level: 3);
+    final selectedLevel3 = selectedPath.length > 2 ? selectedPath[2] : null;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 560;
+        final actionWidth = allLabel.isEmpty ? 0.0 : 96.0;
+        final fieldWidth = compact
+            ? constraints.maxWidth
+            : (constraints.maxWidth - actionWidth - 30) / 3;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            if (allLabel.isNotEmpty)
+              SizedBox(
+                width: compact ? constraints.maxWidth : actionWidth,
+                height: 56,
+                child: OutlinedButton.icon(
+                  onPressed: () => onChanged(null),
+                  icon: const Icon(Icons.filter_alt_off_rounded, size: 18),
+                  label: Text(allLabel),
+                ),
+              ),
+            SizedBox(
+              width: compact ? constraints.maxWidth : fieldWidth,
+              child: DropdownButtonFormField<int?>(
+                initialValue: selectedLevel1?.id,
+                decoration: const InputDecoration(
+                  labelText: '一级大类',
+                  prefixIcon: Icon(Icons.account_tree_outlined),
+                ),
+                items: [
+                  ...level1.map(
+                    (item) => DropdownMenuItem<int?>(
+                      value: item.id,
+                      child: Text(item.name, overflow: TextOverflow.ellipsis),
+                    ),
+                  ),
+                ],
+                onChanged: (id) => onChanged(_selectableName(id, nodes)),
+              ),
+            ),
+            SizedBox(
+              width: compact ? constraints.maxWidth : fieldWidth,
+              child: DropdownButtonFormField<int?>(
+                initialValue: selectedLevel2?.id,
+                decoration: const InputDecoration(labelText: '二级分组'),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('全部分组'),
+                  ),
+                  ...level2.map(
+                    (item) => DropdownMenuItem<int?>(
+                      value: item.id,
+                      child: Text(item.name, overflow: TextOverflow.ellipsis),
+                    ),
+                  ),
+                ],
+                onChanged: level2.isEmpty
+                    ? null
+                    : (id) => onChanged(
+                          id == null
+                              ? selectedLevel1?.name
+                              : _selectableName(id, nodes),
+                        ),
+              ),
+            ),
+            SizedBox(
+              width: compact ? constraints.maxWidth : fieldWidth,
+              child: DropdownButtonFormField<int?>(
+                initialValue: selectedLevel3?.id,
+                decoration: const InputDecoration(labelText: '三级项目'),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('全部项目'),
+                  ),
+                  ...level3.map(
+                    (item) => DropdownMenuItem<int?>(
+                      value: item.id,
+                      child: Text(item.name, overflow: TextOverflow.ellipsis),
+                    ),
+                  ),
+                ],
+                onChanged: level3.isEmpty
+                    ? null
+                    : (id) => onChanged(
+                          id == null
+                              ? selectedLevel2?.name ?? selectedLevel1?.name
+                              : _selectableName(id, nodes),
+                        ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  List<_ExamCategoryNode> get _activeNodes {
+    return categories
+        .where((item) => item['is_active'] != false)
+        .map(_ExamCategoryNode.fromMap)
+        .where((item) => item.name.isNotEmpty)
+        .toList()
+      ..sort((a, b) {
+        final orderA = _sortOrderFor(a.id);
+        final orderB = _sortOrderFor(b.id);
+        final orderCompare = orderA.compareTo(orderB);
+        if (orderCompare != 0) return orderCompare;
+        final levelCompare = a.level.compareTo(b.level);
+        if (levelCompare != 0) return levelCompare;
+        return a.name.compareTo(b.name);
+      });
+  }
+
+  List<_ExamCategoryNode> _level1Nodes(List<_ExamCategoryNode> nodes) {
+    return nodes
+        .where((item) => item.level == 1 && item.parentId == null)
+        .toList();
+  }
+
+  List<_ExamCategoryNode> _childrenOf(
+    int? parentId,
+    List<_ExamCategoryNode> nodes, {
+    required int level,
+  }) {
+    return nodes
+        .where((item) => item.level == level && item.parentId == parentId)
+        .toList();
+  }
+
+  List<_ExamCategoryNode> _pathFor(
+    _ExamCategoryNode? selected,
+    List<_ExamCategoryNode> nodes,
+  ) {
+    if (selected == null) return const [];
+    final path = <_ExamCategoryNode>[selected];
+    var parentId = selected.parentId;
+    while (parentId != null) {
+      final parent = _firstWhereOrNull(nodes, (item) => item.id == parentId);
+      if (parent == null) break;
+      path.insert(0, parent);
+      parentId = parent.parentId;
+    }
+    return path;
+  }
+
+  String? _selectableName(int? id, List<_ExamCategoryNode> nodes) {
+    if (id == null) return null;
+    final node = _firstWhereOrNull(nodes, (item) => item.id == id);
+    if (node == null) return null;
+    return node.name;
+  }
+
+  int _sortOrderFor(int? id) {
+    for (final item in categories) {
+      if (item['id'] == id) {
+        final raw = item['sort_order'];
+        return raw is int ? raw : int.tryParse('$raw') ?? 0;
+      }
+    }
+    return 0;
+  }
+
+  T? _firstWhereOrNull<T>(Iterable<T> items, bool Function(T item) test) {
+    for (final item in items) {
+      if (test(item)) return item;
+    }
+    return null;
+  }
+}
+
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
 
@@ -45,11 +287,24 @@ class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _questions = [];
   List<Map<String, dynamic>> _courses = [];
   List<Map<String, dynamic>> _users = [];
+  List<Map<String, dynamic>> _examCategories = [];
   Map<String, dynamic>? _dashboard;
   String? _selectedCourseExamCategory;
+  bool _courseUnlinkedOnly = false;
+  String? _dashboardExamCategory;
+  String _dashboardDate = DateTime.now().toIso8601String().substring(0, 10);
   String? _selectedUserExamCategory;
   bool? _selectedUserActive;
   String? _loadError;
+
+  List<String> get _activeExamCategoryNames {
+    final names = _examCategories
+        .where((item) => item['is_active'] != false)
+        .map((item) => '${item['name'] ?? ''}'.trim())
+        .where((name) => name.isNotEmpty)
+        .toList();
+    return names.isEmpty ? AppConstants.examCategories : names;
+  }
 
   @override
   void initState() {
@@ -112,26 +367,50 @@ class _AdminScreenState extends State<AdminScreen> {
         _api.getChapters(),
         _api.getAdminCourses(
           examCategory: _selectedCourseExamCategory,
+          unlinkedOnly: _courseUnlinkedOnly,
         ),
-        _api.getAdminDashboard(),
+        _api.getAdminDashboard(
+          examCategory: _dashboardExamCategory,
+          date: _dashboardDate,
+        ),
         _api.getAdminUsers(
           keyword: _userKeywordCtl.text.trim(),
           examCategory: _selectedUserExamCategory,
           isActive: _selectedUserActive,
         ),
+        _api.getAdminExamCategories(),
       ]);
       final questionRes = responses[0];
       final chapterRes = responses[1];
       final courseRes = responses[2];
       final dashboardRes = responses[3];
       final userRes = responses[4];
+      final examCategoryRes = responses[5];
       _chapters = (chapterRes.data as List)
           .map((json) => Chapter.fromJson(json))
           .toList();
       _questions = List<Map<String, dynamic>>.from(questionRes.data);
       _courses = List<Map<String, dynamic>>.from(courseRes.data);
       _users = List<Map<String, dynamic>>.from(userRes.data);
+      _examCategories = List<Map<String, dynamic>>.from(examCategoryRes.data);
       _dashboard = Map<String, dynamic>.from(dashboardRes.data);
+      final names = _activeExamCategoryNames;
+      if (!names.contains(_selectedExamCategory)) {
+        _selectedExamCategory = names.first;
+        _selectedChapterId = null;
+      }
+      if (_selectedCourseExamCategory != null &&
+          !names.contains(_selectedCourseExamCategory)) {
+        _selectedCourseExamCategory = null;
+      }
+      if (_selectedUserExamCategory != null &&
+          !names.contains(_selectedUserExamCategory)) {
+        _selectedUserExamCategory = null;
+      }
+      if (_dashboardExamCategory != null &&
+          !names.contains(_dashboardExamCategory)) {
+        _dashboardExamCategory = null;
+      }
       _loadError = null;
     } catch (e) {
       if (e is DioException && e.response?.statusCode == 401) {
@@ -250,6 +529,8 @@ class _AdminScreenState extends State<AdminScreen> {
             _QuestionManager(
               questions: _questions,
               chapters: _chapters,
+              examCategories: _activeExamCategoryNames,
+              examCategoryTree: _examCategories,
               selectedExamCategory: _selectedExamCategory,
               selectedChapterId: _selectedChapterId,
               keywordCtl: _keywordCtl,
@@ -272,9 +553,16 @@ class _AdminScreenState extends State<AdminScreen> {
             _CourseManager(
               courses: _courses,
               chapters: _chapters,
+              examCategories: _activeExamCategoryNames,
+              examCategoryTree: _examCategories,
               selectedExamCategory: _selectedCourseExamCategory,
+              unlinkedOnly: _courseUnlinkedOnly,
               onExamCategoryChanged: (category) {
                 setState(() => _selectedCourseExamCategory = category);
+                _loadAll();
+              },
+              onUnlinkedOnlyChanged: (value) {
+                setState(() => _courseUnlinkedOnly = value);
                 _loadAll();
               },
               onSave: _saveCourse,
@@ -283,6 +571,8 @@ class _AdminScreenState extends State<AdminScreen> {
           else if (_tab == 2)
             _UserManager(
               users: _users,
+              examCategories: _activeExamCategoryNames,
+              examCategoryTree: _examCategories,
               keywordCtl: _userKeywordCtl,
               selectedExamCategory: _selectedUserExamCategory,
               selectedActive: _selectedUserActive,
@@ -298,9 +588,26 @@ class _AdminScreenState extends State<AdminScreen> {
               onSave: _saveUser,
               onDelete: _deleteUser,
             )
-          else
+          else if (_tab == 3)
             _DashboardManager(
               data: _dashboard ?? {},
+              examCategories: _activeExamCategoryNames,
+              selectedExamCategory: _dashboardExamCategory,
+              selectedDate: _dashboardDate,
+              onExamCategoryChanged: (category) {
+                setState(() => _dashboardExamCategory = category);
+                _loadAll();
+              },
+              onDateChanged: (date) {
+                setState(() => _dashboardDate = date);
+                _loadAll();
+              },
+            )
+          else
+            _ExamCategoryManager(
+              categories: _examCategories,
+              onSave: _saveExamCategory,
+              onDelete: _deleteExamCategory,
             ),
         ],
       ),
@@ -356,6 +663,23 @@ class _AdminScreenState extends State<AdminScreen> {
     await _api.deleteAdminUser(id);
     await _loadAll();
     _showAdminSnack('用户已删除');
+  }
+
+  Future<void> _saveExamCategory(Map<String, dynamic> data, {int? id}) async {
+    final isCreate = id == null;
+    if (isCreate) {
+      await _api.createAdminExamCategory(data);
+    } else {
+      await _api.updateAdminExamCategory(id, data);
+    }
+    await _loadAll();
+    _showAdminSnack(isCreate ? '考试类别已新增' : '考试类别已更新');
+  }
+
+  Future<void> _deleteExamCategory(int id) async {
+    await _api.deleteAdminExamCategory(id);
+    await _loadAll();
+    _showAdminSnack('考试类别已删除');
   }
 
   void _showAdminSnack(String message) {
@@ -485,15 +809,18 @@ class _AdminLoginScreenState extends State<_AdminLoginScreen> {
                 const SizedBox(height: 12),
                 Center(
                   child: TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _usernameCtl.text = 'admin';
-                        _passwordCtl.text = 'admin123';
-                        _error = null;
-                      });
-                    },
+                    onPressed: _isLoading
+                        ? null
+                        : () async {
+                            setState(() {
+                              _usernameCtl.text = 'admin';
+                              _passwordCtl.text = 'admin123';
+                              _error = null;
+                            });
+                            await _submit();
+                          },
                     icon: const Icon(Icons.account_circle_outlined, size: 18),
-                    label: const Text('使用演示账号 admin / admin123'),
+                    label: const Text('一键登录演示账号 admin / admin123'),
                     style: TextButton.styleFrom(
                       foregroundColor: AppTheme.primary,
                     ),
@@ -609,6 +936,13 @@ class _AdminSidebar extends StatelessWidget {
               selected: selected == 3,
               onTap: () => onSelected(3),
             ),
+            const SizedBox(height: 8),
+            _NavItem(
+              icon: Icons.category_rounded,
+              label: '考试类别',
+              selected: selected == 4,
+              onTap: () => onSelected(4),
+            ),
             const Spacer(),
             OutlinedButton.icon(
               onPressed: () =>
@@ -693,6 +1027,12 @@ class _AdminCompactNav extends StatelessWidget {
                   onPressed: onLogout,
                   icon: const Icon(Icons.logout_rounded),
                 ),
+                IconButton(
+                  tooltip: '返回学员端',
+                  onPressed: () => Navigator.pushNamedAndRemoveUntil(
+                      context, '/', (_) => false),
+                  icon: const Icon(Icons.phone_iphone_rounded),
+                ),
               ],
             ),
             const SizedBox(height: 10),
@@ -723,6 +1063,12 @@ class _AdminCompactNav extends StatelessWidget {
                     label: '看板',
                     selected: selected == 3,
                     onTap: () => onSelected(3),
+                  ),
+                  _CompactNavChip(
+                    icon: Icons.category_rounded,
+                    label: '类别',
+                    selected: selected == 4,
+                    onTap: () => onSelected(4),
                   ),
                 ],
               ),
@@ -1009,6 +1355,8 @@ class _MetricCard extends StatelessWidget {
 class _QuestionManager extends StatelessWidget {
   final List<Map<String, dynamic>> questions;
   final List<Chapter> chapters;
+  final List<String> examCategories;
+  final List<Map<String, dynamic>> examCategoryTree;
   final String selectedExamCategory;
   final int? selectedChapterId;
   final TextEditingController keywordCtl;
@@ -1021,6 +1369,8 @@ class _QuestionManager extends StatelessWidget {
   const _QuestionManager({
     required this.questions,
     required this.chapters,
+    required this.examCategories,
+    required this.examCategoryTree,
     required this.selectedExamCategory,
     required this.selectedChapterId,
     required this.keywordCtl,
@@ -1033,7 +1383,10 @@ class _QuestionManager extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final categoryChapters = _chaptersForCategory(selectedExamCategory);
+    final effectiveExamCategory = examCategories.contains(selectedExamCategory)
+        ? selectedExamCategory
+        : examCategories.first;
+    final categoryChapters = _chaptersForCategory(effectiveExamCategory);
     final effectiveSelectedChapterId =
         categoryChapters.any((chapter) => chapter.id == selectedChapterId)
             ? selectedChapterId
@@ -1054,19 +1407,11 @@ class _QuestionManager extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                       color: AppTheme.textPrimary)),
               SizedBox(
-                width: 170,
-                child: DropdownButtonFormField<String>(
-                  value: selectedExamCategory,
-                  decoration: const InputDecoration(
-                    labelText: '考试科目',
-                    prefixIcon: Icon(Icons.category_outlined),
-                  ),
-                  items: AppConstants.examCategories
-                      .map((category) => DropdownMenuItem<String>(
-                            value: category,
-                            child: Text(category),
-                          ))
-                      .toList(),
+                width: 560,
+                child: _ExamCategoryTreeSelect(
+                  categories: examCategoryTree,
+                  value: effectiveExamCategory,
+                  allLabel: '',
                   onChanged: (value) {
                     if (value != null) onExamCategoryChanged(value);
                   },
@@ -1204,9 +1549,13 @@ class _QuestionManager extends StatelessWidget {
   void _showQuestionDialog(BuildContext context,
       [Map<String, dynamic>? question]) {
     final initialExamCategory = question == null
-        ? selectedExamCategory
-        : _categoryForChapterId(question?['chapter_id']) ??
-            selectedExamCategory;
+        ? (examCategories.contains(selectedExamCategory)
+            ? selectedExamCategory
+            : examCategories.first)
+        : _categoryForChapterId(question['chapter_id']) ??
+            (examCategories.contains(selectedExamCategory)
+                ? selectedExamCategory
+                : examCategories.first);
     final categoryChapters = _chaptersForCategory(initialExamCategory);
     if (categoryChapters.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1256,55 +1605,39 @@ class _QuestionManager extends StatelessWidget {
             child: SingleChildScrollView(
               child: Column(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: dialogExamCategory,
-                          decoration: const InputDecoration(
-                            labelText: '考试科目',
-                            prefixIcon: Icon(Icons.category_outlined),
-                          ),
-                          items: AppConstants.examCategories
-                              .map((category) => DropdownMenuItem<String>(
-                                    value: category,
-                                    child: Text(category),
-                                  ))
-                              .toList(),
-                          onChanged: (value) {
-                            if (value == null) return;
-                            final nextChapters = _chaptersForCategory(value);
-                            if (nextChapters.isEmpty) return;
-                            setDialogState(() {
-                              dialogExamCategory = value;
-                              chapterId = nextChapters.first.id;
-                            });
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          value: chapterId,
-                          decoration: const InputDecoration(
-                            labelText: '章节/学科',
-                            prefixIcon: Icon(Icons.menu_book_outlined),
-                          ),
-                          items: _chaptersForCategory(dialogExamCategory)
-                              .map((chapter) => DropdownMenuItem<int>(
-                                    value: chapter.id,
-                                    child: Text(
-                                      chapter.subjects.isEmpty
-                                          ? chapter.name
-                                          : '${chapter.name} · ${chapter.subjects.join("、")}',
-                                    ),
-                                  ))
-                              .toList(),
-                          onChanged: (value) =>
-                              setDialogState(() => chapterId = value!),
-                        ),
-                      ),
-                    ],
+                  _ExamCategoryTreeSelect(
+                    categories: examCategoryTree,
+                    value: dialogExamCategory,
+                    allLabel: '',
+                    onChanged: (value) {
+                      if (value == null) return;
+                      final nextChapters = _chaptersForCategory(value);
+                      if (nextChapters.isEmpty) return;
+                      setDialogState(() {
+                        dialogExamCategory = value;
+                        chapterId = nextChapters.first.id;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    value: chapterId,
+                    decoration: const InputDecoration(
+                      labelText: '章节/学科',
+                      prefixIcon: Icon(Icons.menu_book_outlined),
+                    ),
+                    items: _chaptersForCategory(dialogExamCategory)
+                        .map((chapter) => DropdownMenuItem<int>(
+                              value: chapter.id,
+                              child: Text(
+                                chapter.subjects.isEmpty
+                                    ? chapter.name
+                                    : '${chapter.name} · ${chapter.subjects.join("、")}',
+                              ),
+                            ))
+                        .toList(),
+                    onChanged: (value) =>
+                        setDialogState(() => chapterId = value!),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -1484,16 +1817,24 @@ class _QuestionManager extends StatelessWidget {
 class _CourseManager extends StatelessWidget {
   final List<Map<String, dynamic>> courses;
   final List<Chapter> chapters;
+  final List<String> examCategories;
+  final List<Map<String, dynamic>> examCategoryTree;
   final String? selectedExamCategory;
+  final bool unlinkedOnly;
   final ValueChanged<String?> onExamCategoryChanged;
+  final ValueChanged<bool> onUnlinkedOnlyChanged;
   final Future<void> Function(Map<String, dynamic> data, {int? id}) onSave;
   final Future<void> Function(int id) onDelete;
 
   const _CourseManager({
     required this.courses,
     required this.chapters,
+    required this.examCategories,
+    required this.examCategoryTree,
     required this.selectedExamCategory,
+    required this.unlinkedOnly,
     required this.onExamCategoryChanged,
+    required this.onUnlinkedOnlyChanged,
     required this.onSave,
     required this.onDelete,
   });
@@ -1522,24 +1863,24 @@ class _CourseManager extends StatelessWidget {
                 style: const TextStyle(color: AppTheme.textSecondary),
               ),
               SizedBox(
-                width: 180,
-                child: DropdownButtonFormField<String?>(
+                width: 560,
+                child: _ExamCategoryTreeSelect(
+                  categories: examCategoryTree,
                   value: selectedExamCategory,
-                  decoration: const InputDecoration(labelText: '考试类别'),
-                  items: [
-                    const DropdownMenuItem<String?>(
-                      value: null,
-                      child: Text('全部考试'),
-                    ),
-                    ...AppConstants.examCategories.map(
-                      (item) => DropdownMenuItem<String?>(
-                        value: item,
-                        child: Text(item),
-                      ),
-                    ),
-                  ],
+                  allLabel: '全部考试',
                   onChanged: onExamCategoryChanged,
                 ),
+              ),
+              FilterChip(
+                selected: unlinkedOnly,
+                avatar: Icon(
+                  unlinkedOnly
+                      ? Icons.link_off_rounded
+                      : Icons.link_off_outlined,
+                  size: 18,
+                ),
+                label: const Text('只看未关联题库'),
+                onSelected: onUnlinkedOnlyChanged,
               ),
               ElevatedButton.icon(
                 onPressed: () => _showCourseDialog(context),
@@ -1639,7 +1980,11 @@ class _CourseManager extends StatelessWidget {
         TextEditingController(text: '${course?['lesson_count'] ?? 1}');
     final descCtl = TextEditingController(text: course?['description'] ?? '');
     var courseType = course?['course_type'] ?? 'recorded';
-    var examCategory = course?['exam_category'] ?? '执业资格';
+    var examCategory =
+        (course?['exam_category'] ?? examCategories.first).toString();
+    if (!examCategories.contains(examCategory)) {
+      examCategory = examCategories.first;
+    }
     int? chapterId = course?['chapter_id'];
     var isPublished = course?['is_published'] ?? true;
 
@@ -1676,17 +2021,18 @@ class _CourseManager extends StatelessWidget {
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: DropdownButtonFormField<String>(
+                        flex: 2,
+                        child: _ExamCategoryTreeSelect(
+                          categories: examCategoryTree,
                           value: examCategory,
-                          decoration: const InputDecoration(labelText: '考试类型'),
-                          items: AppConstants.examCategories
-                              .map((item) => DropdownMenuItem(
-                                  value: item, child: Text(item)))
-                              .toList(),
-                          onChanged: (value) => setDialogState(() {
-                            examCategory = value!;
-                            chapterId = null;
-                          }),
+                          allLabel: '',
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setDialogState(() {
+                              examCategory = value;
+                              chapterId = null;
+                            });
+                          },
                         ),
                       ),
                     ],
@@ -1820,6 +2166,8 @@ class _CourseManager extends StatelessWidget {
 
 class _UserManager extends StatelessWidget {
   final List<Map<String, dynamic>> users;
+  final List<String> examCategories;
+  final List<Map<String, dynamic>> examCategoryTree;
   final TextEditingController keywordCtl;
   final String? selectedExamCategory;
   final bool? selectedActive;
@@ -1831,6 +2179,8 @@ class _UserManager extends StatelessWidget {
 
   const _UserManager({
     required this.users,
+    required this.examCategories,
+    required this.examCategoryTree,
     required this.keywordCtl,
     required this.selectedExamCategory,
     required this.selectedActive,
@@ -1891,22 +2241,11 @@ class _UserManager extends StatelessWidget {
                     ),
                   ),
                   SizedBox(
-                    width: compact ? constraints.maxWidth : 180,
-                    child: DropdownButtonFormField<String?>(
+                    width: compact ? constraints.maxWidth : 560,
+                    child: _ExamCategoryTreeSelect(
+                      categories: examCategoryTree,
                       value: selectedExamCategory,
-                      decoration: const InputDecoration(labelText: '考试类别'),
-                      items: [
-                        const DropdownMenuItem<String?>(
-                          value: null,
-                          child: Text('全部考试'),
-                        ),
-                        ...AppConstants.examCategories.map(
-                          (item) => DropdownMenuItem<String?>(
-                            value: item,
-                            child: Text(item),
-                          ),
-                        ),
-                      ],
+                      allLabel: '全部考试',
                       onChanged: onExamCategoryChanged,
                     ),
                   ),
@@ -2015,10 +2354,9 @@ class _UserManager extends StatelessWidget {
         text: '${user?['phone'] ?? user?['username'] ?? ''}');
     final nameCtl = TextEditingController(text: '${user?['full_name'] ?? ''}');
     final passwordCtl = TextEditingController();
-    var targetExam =
-        (user?['target_exam'] ?? AppConstants.examCategories.first).toString();
-    if (!AppConstants.examCategories.contains(targetExam)) {
-      targetExam = AppConstants.examCategories.first;
+    var targetExam = (user?['target_exam'] ?? examCategories.first).toString();
+    if (!examCategories.contains(targetExam)) {
+      targetExam = examCategories.first;
     }
     var isActive = user?['is_active'] != false;
 
@@ -2060,15 +2398,14 @@ class _UserManager extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
+                  _ExamCategoryTreeSelect(
+                    categories: examCategoryTree,
                     value: targetExam,
-                    decoration: const InputDecoration(labelText: '考试类别'),
-                    items: AppConstants.examCategories
-                        .map((item) =>
-                            DropdownMenuItem(value: item, child: Text(item)))
-                        .toList(),
-                    onChanged: (value) =>
-                        setDialogState(() => targetExam = value!),
+                    allLabel: '',
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setDialogState(() => targetExam = value);
+                    },
                   ),
                   SwitchListTile(
                     value: isActive,
@@ -2162,10 +2499,339 @@ class _UserManager extends StatelessWidget {
   }
 }
 
+class _ExamCategoryManager extends StatelessWidget {
+  final List<Map<String, dynamic>> categories;
+  final Future<void> Function(Map<String, dynamic> data, {int? id}) onSave;
+  final Future<void> Function(int id) onDelete;
+
+  const _ExamCategoryManager({
+    required this.categories,
+    required this.onSave,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text(
+                '考试类别管理',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+              Text(
+                '共 ${categories.length} 个类别',
+                style: const TextStyle(color: AppTheme.textSecondary),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => _showCategoryDialog(context),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('新增考试类别'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (categories.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 42),
+              child: Center(
+                child: Text(
+                  '暂无考试类别',
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+              ),
+            )
+          else ...[
+            const _DataHeader(
+              columns: ['ID', '层级', '考试类别', '上级', '排序', '状态', '操作'],
+              flexes: [1, 1, 3, 2, 1, 1, 2],
+            ),
+            ...categories.map(
+              (category) {
+                final active = category['is_active'] != false;
+                final name = '${category['name'] ?? ''}';
+                final level = category['level'] ?? 1;
+                return _DataRowCard(
+                  cells: [
+                    '${category['id'] ?? ''}',
+                    _levelLabel(level),
+                    name,
+                    _parentName(category['parent_id']),
+                    '${category['sort_order'] ?? 0}',
+                    active ? '启用' : '停用',
+                  ],
+                  flexes: const [1, 1, 3, 2, 1, 1],
+                  actions: [
+                    IconButton(
+                      tooltip: '编辑类别',
+                      onPressed: () => _showCategoryDialog(context, category),
+                      icon: const Icon(Icons.edit_rounded),
+                    ),
+                    IconButton(
+                      tooltip: name == '执业资格' ? '默认类别不可删除' : '删除类别',
+                      onPressed: name == '执业资格'
+                          ? null
+                          : () => _confirmDeleteCategory(context, category),
+                      icon: Icon(
+                        Icons.delete_outline_rounded,
+                        color: name == '执业资格'
+                            ? AppTheme.textSecondary
+                            : AppTheme.error,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showCategoryDialog(
+    BuildContext context, [
+    Map<String, dynamic>? category,
+  ]) {
+    final nameCtl = TextEditingController(text: '${category?['name'] ?? ''}');
+    final descCtl =
+        TextEditingController(text: '${category?['description'] ?? ''}');
+    final sortCtl =
+        TextEditingController(text: '${category?['sort_order'] ?? 0}');
+    var level = category?['level'] ?? 1;
+    int? parentId = category?['parent_id'];
+    var isActive = category?['is_active'] != false;
+    final isDefault =
+        category?['name'] == '执业资格' || category?['name'] == '临床执业医师';
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(category == null ? '新增考试类别' : '编辑考试类别'),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameCtl,
+                    decoration: const InputDecoration(
+                      labelText: '考试类别名称',
+                      prefixIcon: Icon(Icons.category_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: descCtl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: '描述',
+                      prefixIcon: Icon(Icons.notes_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    value: level,
+                    decoration: const InputDecoration(
+                      labelText: '层级',
+                      prefixIcon: Icon(Icons.account_tree_outlined),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 1, child: Text('一级大类')),
+                      DropdownMenuItem(value: 2, child: Text('二级分组')),
+                      DropdownMenuItem(value: 3, child: Text('三级考试项目')),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setDialogState(() {
+                        level = value;
+                        parentId = null;
+                      });
+                    },
+                  ),
+                  if (level > 1) ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int>(
+                      value: categories.any((item) => item['id'] == parentId)
+                          ? parentId
+                          : null,
+                      decoration: const InputDecoration(
+                        labelText: '上级类别',
+                        prefixIcon:
+                            Icon(Icons.subdirectory_arrow_right_rounded),
+                      ),
+                      items: categories
+                          .where((item) => item['level'] == level - 1)
+                          .map(
+                            (item) => DropdownMenuItem<int>(
+                              value: item['id'],
+                              child: Text('${item['name']}'),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) =>
+                          setDialogState(() => parentId = value),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: sortCtl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: '排序',
+                      prefixIcon: Icon(Icons.sort_rounded),
+                    ),
+                  ),
+                  SwitchListTile(
+                    value: isActive,
+                    onChanged: isDefault
+                        ? null
+                        : (value) => setDialogState(() => isActive = value),
+                    title: Text(isDefault ? '默认类别必须启用' : '启用类别'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final name = nameCtl.text.trim();
+                final sortOrder = int.tryParse(sortCtl.text.trim());
+                if (name.isEmpty) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('请输入考试类别名称')),
+                  );
+                  return;
+                }
+                if (sortOrder == null) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('排序必须是整数')),
+                  );
+                  return;
+                }
+                if (level > 1 && parentId == null) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('请选择上级类别')),
+                  );
+                  return;
+                }
+                try {
+                  await onSave(
+                    {
+                      'name': name,
+                      'parent_id': level == 1 ? null : parentId,
+                      'level': level,
+                      'description': descCtl.text.trim(),
+                      'sort_order': sortOrder,
+                      'is_active': isDefault ? true : isActive,
+                    },
+                    id: category?['id'],
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } catch (e) {
+                  if (!ctx.mounted) return;
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(
+                      content: Text(_adminErrorMessage(e, '保存考试类别失败')),
+                      backgroundColor: AppTheme.error,
+                    ),
+                  );
+                }
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteCategory(
+    BuildContext context,
+    Map<String, dynamic> category,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除考试类别'),
+        content: Text(
+          '确定删除考试类别「${category['name'] ?? category['id']}」吗？已有用户、课程、题目或学习记录的类别不能删除。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      try {
+        await onDelete(category['id']);
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_adminErrorMessage(e, '删除考试类别失败')),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  String _levelLabel(dynamic level) {
+    if (level == 3) return '三级';
+    if (level == 2) return '二级';
+    return '一级';
+  }
+
+  String _parentName(dynamic parentId) {
+    if (parentId == null) return '-';
+    for (final item in categories) {
+      if (item['id'] == parentId) return '${item['name'] ?? '-'}';
+    }
+    return '-';
+  }
+}
+
 class _DashboardManager extends StatelessWidget {
   final Map<String, dynamic> data;
+  final List<String> examCategories;
+  final String? selectedExamCategory;
+  final String selectedDate;
+  final ValueChanged<String?> onExamCategoryChanged;
+  final ValueChanged<String> onDateChanged;
 
-  const _DashboardManager({required this.data});
+  const _DashboardManager({
+    required this.data,
+    required this.examCategories,
+    required this.selectedExamCategory,
+    required this.selectedDate,
+    required this.onExamCategoryChanged,
+    required this.onDateChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2215,9 +2881,51 @@ class _DashboardManager extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '运营数据看板',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text(
+                '运营数据看板',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+              SizedBox(
+                width: 180,
+                child: DropdownButtonFormField<String?>(
+                  value: selectedExamCategory,
+                  decoration: const InputDecoration(labelText: '考试分类'),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('全部考试'),
+                    ),
+                    ...examCategories.map(
+                      (item) => DropdownMenuItem<String?>(
+                        value: item,
+                        child: Text(item),
+                      ),
+                    ),
+                  ],
+                  onChanged: onExamCategoryChanged,
+                ),
+              ),
+              SizedBox(
+                width: 170,
+                child: TextFormField(
+                  initialValue: selectedDate,
+                  decoration: const InputDecoration(
+                    labelText: '统计日期',
+                    hintText: 'YYYY-MM-DD',
+                    prefixIcon: Icon(Icons.today_rounded, size: 18),
+                  ),
+                  onFieldSubmitted: (value) {
+                    final date = value.trim();
+                    if (date.isNotEmpty) onDateChanged(date);
+                  },
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           Wrap(spacing: 10, runSpacing: 10, children: metrics),

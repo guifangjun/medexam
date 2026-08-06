@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'core/app_messenger.dart';
 import 'core/theme/app_theme.dart';
 import 'data/providers/auth_provider.dart';
+import 'data/providers/exam_category_provider.dart';
 import 'data/providers/question_provider.dart';
 import 'data/providers/study_provider.dart';
 import 'data/providers/ai_chat_provider.dart';
@@ -22,6 +23,9 @@ class MedExamApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(
+          create: (_) => ExamCategoryProvider()..loadExamCategories(),
+        ),
         ChangeNotifierProvider(create: (_) => QuestionProvider()),
         ChangeNotifierProvider(create: (_) => StudyProvider()),
         ChangeNotifierProvider(create: (_) => AIChatProvider()),

@@ -11,7 +11,9 @@ import '../../widgets/app_glass.dart';
 import '../practice/practice_screen.dart';
 
 class CourseScreen extends StatefulWidget {
-  const CourseScreen({super.key});
+  final int initialTab;
+
+  const CourseScreen({super.key, this.initialTab = 0});
 
   @override
   State<CourseScreen> createState() => _CourseScreenState();
@@ -32,6 +34,7 @@ class _CourseScreenState extends State<CourseScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.index = widget.initialTab.clamp(0, 1);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadCourses(context.read<QuestionProvider>().examCategory);
     });
@@ -249,6 +252,19 @@ class _CourseCard extends StatelessWidget {
                         fontSize: 13,
                       ),
                     ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '关联题库：${course.questionBankText}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: course.chapterId == null
+                            ? AppTheme.textHint
+                            : AppTheme.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -314,11 +330,16 @@ class _CourseDetailScreen extends StatefulWidget {
 
 class _CourseDetailScreenState extends State<_CourseDetailScreen> {
   String? _loadingMode;
+  final Set<int> _completedLessons = {};
 
   _Course get course => widget.course;
 
   bool _isLoading(String mode) => _loadingMode == mode;
   bool get _isBusy => _loadingMode != null;
+  double get _lessonProgress {
+    final total = course.lessonCount.clamp(1, 99).toInt();
+    return (_completedLessons.length / total).clamp(0.0, 1.0);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -395,7 +416,7 @@ class _CourseDetailScreenState extends State<_CourseDetailScreen> {
                       Expanded(
                         child: Text(
                           course.chapterId == null
-                              ? '关联题库：暂未关联'
+                              ? '关联题库：暂未关联题库，暂不能进入课前/课后练习'
                               : '关联题库：${course.chapterName} · ${course.chapterQuestionCount} 题',
                           style: const TextStyle(
                               color: AppTheme.textSecondary, height: 1.4),
@@ -473,6 +494,43 @@ class _CourseDetailScreenState extends State<_CourseDetailScreen> {
               isLoading: _isLoading('unanswered'),
               onTap: () =>
                   _startPractice(context, mode: 'unanswered', title: '课前摸底'),
+            ),
+            const SizedBox(height: 10),
+            GlassCard(
+              padding: const EdgeInsets.all(16),
+              tint: AppTheme.accent.withOpacity(0.07),
+              borderColor: AppTheme.accent.withOpacity(0.12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.play_lesson_rounded,
+                          color: AppTheme.accent, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '课程进度 ${_completedLessons.length}/${course.lessonCount.clamp(1, 99).toInt()} 讲',
+                          style: const TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(99),
+                    child: LinearProgressIndicator(
+                      value: _lessonProgress,
+                      minHeight: 8,
+                      backgroundColor: AppTheme.divider,
+                      valueColor: const AlwaysStoppedAnimation(AppTheme.accent),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 10),
             _CourseLoopStep(
@@ -713,47 +771,76 @@ class _CourseDetailScreenState extends State<_CourseDetailScreen> {
                 ),
                 const SizedBox(height: 10),
                 ...List.generate(lessonCount, (index) {
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(13),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(13),
-                      border: Border.all(color: AppTheme.divider),
-                    ),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 15,
-                          backgroundColor: course.color.withOpacity(0.12),
-                          child: Text(
-                            '${index + 1}',
-                            style: TextStyle(
-                              color: course.color,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w900,
+                  final lessonNo = index + 1;
+                  final completed = _completedLessons.contains(lessonNo);
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(13),
+                    onTap: () {
+                      setState(() {
+                        if (completed) {
+                          _completedLessons.remove(lessonNo);
+                        } else {
+                          _completedLessons.add(lessonNo);
+                        }
+                      });
+                    },
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(13),
+                      decoration: BoxDecoration(
+                        color: completed
+                            ? AppTheme.success.withOpacity(0.08)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(13),
+                        border: Border.all(
+                          color: completed
+                              ? AppTheme.success.withOpacity(0.36)
+                              : AppTheme.divider,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 15,
+                            backgroundColor: completed
+                                ? AppTheme.success
+                                : course.color.withOpacity(0.12),
+                            child: completed
+                                ? const Icon(Icons.check_rounded,
+                                    size: 16, color: Colors.white)
+                                : Text(
+                                    '$lessonNo',
+                                    style: TextStyle(
+                                      color: course.color,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              course.isLive
+                                  ? '第 $lessonNo 场：直播重点串讲'
+                                  : '第 $lessonNo 讲：核心考点精讲',
+                              style: const TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            course.isLive
-                                ? '第 ${index + 1} 场：直播重点串讲'
-                                : '第 ${index + 1} 讲：核心考点精讲',
-                            style: const TextStyle(
-                              color: AppTheme.textPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          Icon(
+                            completed
+                                ? Icons.task_alt_rounded
+                                : course.isLive
+                                    ? Icons.event_available_rounded
+                                    : Icons.play_circle_outline_rounded,
+                            color: completed
+                                ? AppTheme.success
+                                : AppTheme.textHint,
                           ),
-                        ),
-                        Icon(
-                          course.isLive
-                              ? Icons.event_available_rounded
-                              : Icons.play_circle_outline_rounded,
-                          color: AppTheme.textHint,
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   );
                 }),

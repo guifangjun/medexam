@@ -15,7 +15,7 @@ class User(Base):
     full_name = Column(String(100))
     is_active = Column(Boolean, default=True)
     is_premium = Column(Boolean, default=False)  # 订阅会员
-    target_exam = Column(String(50), default="执业资格")  # 执业资格/职称类别
+    target_exam = Column(String(50), default="临床执业医师")  # 三级考试科目
     target_date = Column(DateTime, nullable=True)  # 目标考试日期
     daily_goal = Column(Integer, default=20)  # 每日目标做题数
     created_at = Column(DateTime, default=datetime.now, server_default=func.now())

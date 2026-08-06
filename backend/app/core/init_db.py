@@ -7,14 +7,17 @@ from app.models import admin_user, conversation, course, question, study, user  
 from app.models.admin_user import AdminUser
 from app.models.course import Course
 from app.models.conversation import AIConversation
-from app.models.question import Chapter, ExamAttempt, Question, QuestionRecord
+from app.models.question import Chapter, ExamAttempt, ExamCategory, Question, QuestionRecord
 from app.models.study import DailyTask, StudyPlan, StudyStats, WrongQuestion
 from app.models.user import User
 from app.core.licensed_exam_questions import build_licensed_exam_questions
 from app.core.exam_categories import (
     EXAM_CATEGORY_ALIASES,
     EXAM_CATEGORIES,
+    DEFAULT_EXAM_CATEGORIES,
+    DEFAULT_EXAM_CATEGORY_TREE,
     normalize_exam_category,
+    set_active_exam_categories,
 )
 
 
@@ -38,10 +41,124 @@ async def init_database() -> None:
     await _ensure_exam_category_content()
 
     async with AsyncSessionLocal() as db:
+        await _ensure_exam_categories(db)
         await _normalize_user_exam_categories(db)
         await _cleanup_orphan_user_data(db)
         await _ensure_demo_user(db)
         await _ensure_course_chapter_links(db)
+
+
+async def _ensure_exam_categories(db) -> None:
+    existing = {
+        item.name: item
+        for item in (await db.execute(select(ExamCategory))).scalars().all()
+    }
+    changed = False
+    for index, group in enumerate(DEFAULT_EXAM_CATEGORY_TREE):
+        group_name = group["name"]
+        group_item = existing.get(group_name)
+        if group_item is None:
+            group_item = ExamCategory(
+                name=group_name,
+                description=group.get("description") or f"{group_name}考试类别",
+                level=1,
+                sort_order=(index + 1) * 100,
+                is_active=True,
+            )
+            db.add(group_item)
+            await db.flush()
+            existing[group_name] = group_item
+            changed = True
+        else:
+            group_item.level = 1
+            group_item.parent_id = None
+        for section_index, section in enumerate(group.get("children", [])):
+            section_name = section["name"]
+            section_item = existing.get(section_name)
+            if section_item is None:
+                section_item = ExamCategory(
+                    name=section_name,
+                    parent_id=group_item.id,
+                    level=2,
+                    sort_order=group_item.sort_order + section_index + 1,
+                    is_active=True,
+                )
+                db.add(section_item)
+                await db.flush()
+                existing[section_name] = section_item
+                changed = True
+            else:
+                section_item.parent_id = group_item.id
+                section_item.level = 2
+            for leaf_index, leaf_name in enumerate(section.get("children", [])):
+                leaf_item = existing.get(leaf_name)
+                if leaf_item is None:
+                    leaf_item = ExamCategory(
+                        name=leaf_name,
+                        parent_id=section_item.id,
+                        level=3,
+                        description=f"{leaf_name}考试项目",
+                        sort_order=section_item.sort_order * 100 + leaf_index + 1,
+                        is_active=True,
+                    )
+                    db.add(leaf_item)
+                    existing[leaf_name] = leaf_item
+                    changed = True
+                else:
+                    leaf_item.parent_id = section_item.id
+                    leaf_item.level = 3
+    for index, name in enumerate(DEFAULT_EXAM_CATEGORIES):
+        legacy = existing.get(name)
+        if legacy is None:
+            db.add(
+                ExamCategory(
+                    name=name,
+                    description=f"{name}历史兼容类别",
+                    level=3,
+                    sort_order=9000 + index,
+                    is_active=True,
+                )
+            )
+            changed = True
+    if changed:
+        await db.commit()
+
+    leaf_categories = (
+        await db.execute(
+            select(ExamCategory).where(
+                ExamCategory.is_active == True,
+                ExamCategory.level == 3,
+            )
+        )
+    ).scalars().all()
+    chapter_changed = False
+    for item in leaf_categories:
+        chapter_exists = await db.scalar(
+            select(Chapter.id).where(Chapter.exam_category == item.name).limit(1)
+        )
+        if chapter_exists is None:
+            db.add(
+                Chapter(
+                    name="默认章节",
+                    exam_category=item.name,
+                    order=1,
+                    subjects=["默认科目"],
+                )
+            )
+            chapter_changed = True
+    if chapter_changed:
+        await db.commit()
+
+    active_items = (
+        await db.execute(
+            select(ExamCategory)
+            .where(ExamCategory.is_active == True)
+            .order_by(ExamCategory.sort_order, ExamCategory.id)
+        )
+    ).scalars().all()
+    parent_ids = {item.parent_id for item in active_items if item.parent_id is not None}
+    leaf_items = [item for item in active_items if item.id not in parent_ids]
+    set_active_exam_categories([item.name for item in leaf_items])
 
 
 async def _ensure_demo_user(db) -> None:
@@ -53,7 +170,7 @@ async def _ensure_demo_user(db) -> None:
         legacy_demo.email = f"{demo_phone}@phone.medexam.cn"
         legacy_demo.hashed_password = pwd_context.hash("demo123")
         legacy_demo.full_name = legacy_demo.full_name or "演示医生"
-        legacy_demo.target_exam = "执业资格"
+        legacy_demo.target_exam = legacy_demo.target_exam or "临床执业医师"
         legacy_demo.daily_goal = 30
         await db.commit()
 
@@ -66,7 +183,7 @@ async def _ensure_demo_user(db) -> None:
                 phone=demo_phone,
                 hashed_password=pwd_context.hash("demo123"),
                 full_name="演示医生",
-                target_exam="执业资格",
+                target_exam="临床执业医师",
                 daily_goal=30,
             )
         )
@@ -76,7 +193,7 @@ async def _ensure_demo_user(db) -> None:
         demo_user.email = f"{demo_phone}@phone.medexam.cn"
         demo_user.hashed_password = pwd_context.hash("demo123")
         demo_user.full_name = demo_user.full_name or "演示医生"
-        demo_user.target_exam = "执业资格"
+        demo_user.target_exam = demo_user.target_exam or "临床执业医师"
         demo_user.daily_goal = demo_user.daily_goal or 30
     await db.commit()
 
@@ -128,10 +245,10 @@ async def _normalize_user_exam_categories(db) -> None:
     changed = False
     users = (await db.execute(select(User))).scalars().all()
     for item in users:
-        target = item.target_exam or "执业资格"
+        target = item.target_exam or "临床执业医师"
         normalized = EXAM_CATEGORY_ALIASES.get(target, target)
         if normalized not in EXAM_CATEGORIES:
-            normalized = "执业资格"
+            normalized = "临床执业医师"
         if item.target_exam != normalized:
             item.target_exam = normalized
             changed = True
@@ -185,6 +302,15 @@ async def _ensure_sqlite_columns(conn) -> None:
     if "exam_category" not in ai_conversation_columns:
         await conn.execute(
             text("ALTER TABLE ai_conversations ADD COLUMN exam_category VARCHAR(50)")
+        )
+
+    result = await conn.execute(text("PRAGMA table_info(exam_categories)"))
+    exam_category_columns = {row[1] for row in result.fetchall()}
+    if "parent_id" not in exam_category_columns:
+        await conn.execute(text("ALTER TABLE exam_categories ADD COLUMN parent_id INTEGER"))
+    if "level" not in exam_category_columns:
+        await conn.execute(
+            text("ALTER TABLE exam_categories ADD COLUMN level INTEGER NOT NULL DEFAULT 1")
         )
 
 

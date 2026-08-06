@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../data/providers/question_provider.dart';
 import '../../../data/providers/study_provider.dart';
+import '../../../core/constants/api_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../widgets/app_glass.dart';
 
@@ -248,16 +249,35 @@ class _PracticeScreenState extends State<PracticeScreen> {
     final chapters = provider.chapters;
     if (chapters.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.folder_open_rounded, size: 64, color: AppTheme.textHint),
-            const SizedBox(height: 16),
-            Text(
-              provider.error ?? '暂无题目',
-              style: const TextStyle(color: AppTheme.textSecondary),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: GlassCard(
+            padding: const EdgeInsets.all(24),
+            tint: Colors.white.withOpacity(0.84),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.folder_open_rounded,
+                    size: 64, color: AppTheme.textHint),
+                const SizedBox(height: 16),
+                Text(
+                  '${provider.examCategory}暂无题目',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '请在后台题库管理中添加题目，添加后这里会按当前考试分类展示章节和专项练习。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.textSecondary, height: 1.5),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       );
     }
@@ -265,6 +285,8 @@ class _PracticeScreenState extends State<PracticeScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
       children: [
+        _buildQuestionBankStatusCard(provider),
+        const SizedBox(height: 14),
         _buildModeGrid(context, provider),
         const SizedBox(height: 18),
         const Text(
@@ -353,6 +375,55 @@ class _PracticeScreenState extends State<PracticeScreen> {
           );
         }),
       ],
+    );
+  }
+
+  Widget _buildQuestionBankStatusCard(QuestionProvider provider) {
+    final questionCount = provider.examAvailableCount;
+    final countText = questionCount == null ? '题量统计中' : '共 $questionCount 题';
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      tint: AppTheme.primary.withOpacity(0.07),
+      borderColor: AppTheme.primary.withOpacity(0.14),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.library_books_rounded,
+                color: AppTheme.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '当前题库：${provider.examCategory}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$countText · ${provider.chapters.length} 个章节',
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

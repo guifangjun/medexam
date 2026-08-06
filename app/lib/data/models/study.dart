@@ -150,6 +150,21 @@ class WrongQuestion {
       createdAt: DateTime.parse(json['created_at']),
     );
   }
+
+  String get chapterName =>
+      questionTags.isNotEmpty ? questionTags.first : '未关联章节';
+
+  String get masteryLabel => isMastered ? '已掌握' : '待复习';
+
+  String get nextReviewLabel {
+    if (isMastered) return '已掌握';
+    if (nextReviewAt == null) return '建议今天复习';
+    final now = DateTime.now();
+    final date =
+        '${nextReviewAt!.month.toString().padLeft(2, '0')}-${nextReviewAt!.day.toString().padLeft(2, '0')}';
+    if (nextReviewAt!.isBefore(now)) return '已到期 · $date';
+    return '下次复习 $date';
+  }
 }
 
 class WrongReviewCalendarDay {

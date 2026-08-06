@@ -366,7 +366,10 @@ async def get_wrong_questions(
         .limit(limit)
     )
     wrong_questions = []
-    for wrong_q, question in result.all():
+    for wrong_q, question, chapter in result.all():
+        tags = list(question.知识点 or [])
+        if chapter.name and chapter.name not in tags:
+            tags.insert(0, chapter.name)
         wrong_questions.append(
             {
                 "id": wrong_q.id,
@@ -376,7 +379,7 @@ async def get_wrong_questions(
                 "question_answer": question.answer,
                 "question_explanation": question.explanation,
                 "question_difficulty": question.difficulty,
-                "question_tags": question.知识点 or [],
+                "question_tags": tags,
                 "wrong_reason": wrong_q.wrong_reason,
                 "review_count": wrong_q.review_count,
                 "is_mastered": wrong_q.is_mastered,

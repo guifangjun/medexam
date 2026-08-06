@@ -11,11 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import create_access_token, get_password_hash, verify_password
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.exam_categories import try_normalize_exam_category
+from app.core.exam_categories import set_active_exam_categories, try_normalize_exam_category
 from app.models.admin_user import AdminUser
 from app.models.conversation import AIConversation
 from app.models.course import Course
-from app.models.question import Chapter, Question, QuestionRecord
+from app.models.question import Chapter, ExamCategory, Question, QuestionRecord
 from app.models.question import ExamAttempt
 from app.models.study import DailyTask, StudyPlan, StudyStats, WrongQuestion
 from app.models.user import User
@@ -40,8 +40,26 @@ class AdminManagedUserUpdate(BaseModel):
     phone: Optional[str] = None
     password: Optional[str] = None
     full_name: Optional[str] = None
-    is_active: Optional[bool] = None
     target_exam: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class ExamCategoryPayload(BaseModel):
+    name: str
+    parent_id: Optional[int] = None
+    level: int = 1
+    description: Optional[str] = None
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class ExamCategoryUpdatePayload(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[int] = None
+    level: Optional[int] = None
+    description: Optional[str] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
 
 
 async def get_current_admin(
@@ -91,6 +109,32 @@ async def get_optional_admin(
     return admin if admin and admin.is_active else None
 
 
+async def _sync_runtime_exam_categories(db: AsyncSession) -> None:
+    active_items = (
+        await db.execute(
+            select(ExamCategory)
+            .where(ExamCategory.is_active == True)
+            .order_by(ExamCategory.sort_order, ExamCategory.id)
+        )
+    ).scalars().all()
+    parent_ids = {item.parent_id for item in active_items if item.parent_id is not None}
+    leaf_items = [item for item in active_items if item.id not in parent_ids]
+    set_active_exam_categories([item.name for item in leaf_items])
+
+
+def _exam_category_dict(item: ExamCategory) -> dict:
+    return {
+        "id": item.id,
+        "name": item.name,
+        "parent_id": item.parent_id,
+        "level": item.level or 1,
+        "description": item.description or "",
+        "sort_order": item.sort_order or 0,
+        "is_active": item.is_active,
+        "created_at": item.created_at,
+    }
+
+
 @router.post("/auth/login", response_model=Token)
 async def admin_login(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -118,19 +162,37 @@ async def admin_me(current_admin: AdminUser = Depends(get_current_admin)):
 
 @router.get("/dashboard")
 async def dashboard(
+    exam_category: Optional[str] = None,
+    date: Optional[str] = None,
     current_admin: AdminUser = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    today = datetime.now().strftime("%Y-%m-%d")
-    user_count = await db.scalar(select(func.count()).select_from(User)) or 0
-    question_count = await db.scalar(select(func.count()).select_from(Question)) or 0
-    course_count = await db.scalar(select(func.count()).select_from(Course)) or 0
+    today = date or datetime.now().strftime("%Y-%m-%d")
+    category = try_normalize_exam_category(exam_category) if exam_category else None
+    if exam_category and category is None:
+        raise HTTPException(status_code=400, detail="考试分类不正确")
+
+    user_query = select(func.count()).select_from(User)
+    question_query = select(func.count()).select_from(Question)
+    course_query = select(func.count()).select_from(Course)
+    if category:
+        user_query = user_query.where(User.target_exam == category)
+        question_query = question_query.join(Chapter).where(Chapter.exam_category == category)
+        course_query = course_query.where(Course.exam_category == category)
+    user_count = await db.scalar(user_query) or 0
+    question_count = await db.scalar(question_query) or 0
+    course_count = await db.scalar(course_query) or 0
+    stats_query = select(
+        func.count(StudyStats.user_id.distinct()).label("active_users"),
+        func.sum(StudyStats.total_questions).label("questions"),
+        func.sum(StudyStats.correct_count).label("correct"),
+    ).where(StudyStats.date == today)
+    if category:
+        stats_query = stats_query.join(User, StudyStats.user_id == User.id).where(
+            User.target_exam == category
+        )
     today_stats = await db.execute(
-        select(
-            func.count(StudyStats.user_id.distinct()).label("active_users"),
-            func.sum(StudyStats.total_questions).label("questions"),
-            func.sum(StudyStats.correct_count).label("correct"),
-        ).where(StudyStats.date == today)
+        stats_query
     )
     stats = today_stats.one()
     today_questions = stats.questions or 0
@@ -156,12 +218,11 @@ async def dashboard(
         )
     ) or 0
 
-    categories = await db.execute(
-        select(User.target_exam, func.count(User.id))
-        .group_by(User.target_exam)
-        .order_by(func.count(User.id).desc())
-    )
-    chapter_rows = await db.execute(
+    category_query = select(User.target_exam, func.count(User.id)).group_by(User.target_exam)
+    if category:
+        category_query = category_query.where(User.target_exam == category)
+    categories = await db.execute(category_query.order_by(func.count(User.id).desc()))
+    chapter_query = (
         select(
             Chapter.id,
             Chapter.name,
@@ -177,7 +238,11 @@ async def dashboard(
                 QuestionRecord.selected_answer.is_not(None),
             ),
         )
-        .group_by(Chapter.id)
+    )
+    if category:
+        chapter_query = chapter_query.where(Chapter.exam_category == category)
+    chapter_rows = await db.execute(
+        chapter_query.group_by(Chapter.id)
         .order_by(func.count(QuestionRecord.id).desc(), Chapter.order)
         .limit(20)
     )
@@ -206,6 +271,176 @@ async def dashboard(
             for row in chapter_rows.all()
         ],
     }
+
+
+@router.get("/exam-categories")
+async def list_exam_categories(
+    include_inactive: bool = True,
+    current_admin: Optional[AdminUser] = Depends(get_optional_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(ExamCategory).order_by(
+        ExamCategory.level, ExamCategory.sort_order, ExamCategory.id
+    )
+    if current_admin is None or not include_inactive:
+        query = query.where(ExamCategory.is_active == True)
+    result = await db.execute(query)
+    return [_exam_category_dict(item) for item in result.scalars().all()]
+
+
+@router.post("/exam-categories")
+async def create_exam_category(
+    payload: ExamCategoryPayload,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="考试类别名称不能为空")
+    if payload.level not in (1, 2, 3):
+        raise HTTPException(status_code=400, detail="考试类别层级必须是 1、2 或 3")
+    if payload.level > 1 and payload.parent_id is None:
+        raise HTTPException(status_code=400, detail="二级/三级考试类别必须选择上级类别")
+    exists = await db.scalar(select(ExamCategory).where(ExamCategory.name == name))
+    if exists:
+        raise HTTPException(status_code=400, detail="考试类别已存在")
+    item = ExamCategory(
+        name=name,
+        parent_id=payload.parent_id,
+        level=payload.level,
+        description=payload.description,
+        sort_order=payload.sort_order,
+        is_active=payload.is_active,
+    )
+    db.add(item)
+    await db.flush()
+    chapter_exists = None
+    if payload.level == 3:
+        chapter_exists = await db.scalar(
+            select(Chapter).where(Chapter.exam_category == name).limit(1)
+        )
+    if payload.level == 3 and chapter_exists is None:
+        db.add(
+            Chapter(
+                name="默认章节",
+                exam_category=name,
+                order=1,
+                subjects=["默认科目"],
+            )
+        )
+    await db.commit()
+    await db.refresh(item)
+    await _sync_runtime_exam_categories(db)
+    return _exam_category_dict(item)
+
+
+@router.put("/exam-categories/{category_id}")
+async def update_exam_category(
+    category_id: int,
+    payload: ExamCategoryUpdatePayload,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    item = await db.get(ExamCategory, category_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="考试类别不存在")
+    old_name = item.name
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="考试类别名称不能为空")
+        exists = await db.scalar(
+            select(ExamCategory).where(
+                ExamCategory.name == name,
+                ExamCategory.id != category_id,
+            )
+        )
+        if exists:
+            raise HTTPException(status_code=400, detail="考试类别已存在")
+        item.name = name
+        if name != old_name:
+            for model, field in (
+                (Chapter, Chapter.exam_category),
+                (Course, Course.exam_category),
+                (User, User.target_exam),
+                (ExamAttempt, ExamAttempt.exam_category),
+                (DailyTask, DailyTask.exam_category),
+                (StudyPlan, StudyPlan.exam_category),
+                (AIConversation, AIConversation.exam_category),
+            ):
+                await db.execute(
+                    model.__table__.update().where(field == old_name).values(
+                        {field.key: name}
+                    )
+                )
+    if payload.description is not None:
+        item.description = payload.description
+    if payload.parent_id is not None:
+        item.parent_id = payload.parent_id
+    if payload.level is not None:
+        if payload.level not in (1, 2, 3):
+            raise HTTPException(status_code=400, detail="考试类别层级必须是 1、2 或 3")
+        item.level = payload.level
+    if payload.sort_order is not None:
+        item.sort_order = payload.sort_order
+    if payload.is_active is not None:
+        if old_name == "执业资格" and payload.is_active is False:
+            raise HTTPException(status_code=400, detail="默认考试类别不能停用")
+        item.is_active = payload.is_active
+    await db.commit()
+    await db.refresh(item)
+    await _sync_runtime_exam_categories(db)
+    return _exam_category_dict(item)
+
+
+@router.delete("/exam-categories/{category_id}")
+async def delete_exam_category(
+    category_id: int,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    item = await db.get(ExamCategory, category_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="考试类别不存在")
+    if item.name == "执业资格":
+        raise HTTPException(status_code=400, detail="默认考试类别不能删除")
+    child_count = (
+        await db.scalar(
+            select(func.count()).select_from(ExamCategory).where(ExamCategory.parent_id == item.id)
+        )
+        or 0
+    )
+    if child_count > 0:
+        raise HTTPException(status_code=400, detail="该考试类别包含下级分类，请先删除下级分类")
+    question_usage = (
+        await db.scalar(
+            select(func.count())
+            .select_from(Question)
+            .join(Chapter, Question.chapter_id == Chapter.id)
+            .where(Chapter.exam_category == item.name)
+        )
+        or 0
+    )
+    business_usage = question_usage
+    for model, field in (
+        (Course, Course.exam_category),
+        (User, User.target_exam),
+        (ExamAttempt, ExamAttempt.exam_category),
+        (DailyTask, DailyTask.exam_category),
+        (StudyPlan, StudyPlan.exam_category),
+        (AIConversation, AIConversation.exam_category),
+    ):
+        business_usage += (
+            await db.scalar(select(func.count()).select_from(model).where(field == item.name))
+            or 0
+        )
+    if business_usage > 0:
+        raise HTTPException(status_code=400, detail="该考试类别已有业务数据，请先停用或迁移数据")
+    await db.execute(delete(Chapter).where(Chapter.exam_category == item.name))
+    await db.delete(item)
+    await db.commit()
+    await _sync_runtime_exam_categories(db)
+    return {"message": "删除成功"}
 
 
 @router.get("/users", response_model=List[UserResponse])
@@ -443,6 +678,7 @@ async def delete_question(
 async def list_courses(
     course_type: Optional[str] = None,
     exam_category: Optional[str] = None,
+    unlinked_only: Optional[bool] = None,
     current_admin: Optional[AdminUser] = Depends(get_optional_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -466,6 +702,8 @@ async def list_courses(
         if category is None:
             return []
         query = query.where(Course.exam_category == category)
+    if unlinked_only:
+        query = query.where(Course.chapter_id.is_(None))
     result = await db.execute(query)
     courses = []
     for course, chapter_name, chapter_question_count in result.all():

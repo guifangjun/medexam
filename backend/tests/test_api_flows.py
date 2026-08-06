@@ -1129,6 +1129,96 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(admin_alias_questions.json())
         self.assertTrue(admin_alias_courses.json())
 
+    async def test_admin_exam_category_crud_creates_default_chapter(self):
+        suffix = datetime.now().strftime("%H%M%S%f")
+        name = f"自动化测试类别{suffix}"
+        renamed = f"自动化测试类别更新{suffix}"
+
+        listed = await self.client.get(
+            "/api/admin/exam-categories", headers=self.admin_headers
+        )
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertIn("执业资格", [item["name"] for item in listed.json()])
+        self.assertIn("临床执业医师", [item["name"] for item in listed.json()])
+        self.assertIn(3, [item["level"] for item in listed.json()])
+
+        root = await self.client.post(
+            "/api/admin/exam-categories",
+            json={
+                "name": f"{name}一级",
+                "level": 1,
+                "description": "接口自动化创建一级",
+                "sort_order": 990,
+                "is_active": True,
+            },
+            headers=self.admin_headers,
+        )
+        self.assertEqual(root.status_code, 200, root.text)
+        section = await self.client.post(
+            "/api/admin/exam-categories",
+            json={
+                "name": f"{name}二级",
+                "parent_id": root.json()["id"],
+                "level": 2,
+                "description": "接口自动化创建二级",
+                "sort_order": 991,
+                "is_active": True,
+            },
+            headers=self.admin_headers,
+        )
+        self.assertEqual(section.status_code, 200, section.text)
+        created = await self.client.post(
+            "/api/admin/exam-categories",
+            json={
+                "name": name,
+                "parent_id": section.json()["id"],
+                "level": 3,
+                "description": "接口自动化创建三级",
+                "sort_order": 992,
+                "is_active": True,
+            },
+            headers=self.admin_headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        category_id = created.json()["id"]
+
+        chapters = await self.client.get(
+            "/api/questions/chapters", params={"exam_category": name}
+        )
+        self.assertEqual(chapters.status_code, 200, chapters.text)
+        self.assertTrue(chapters.json())
+        self.assertEqual(chapters.json()[0]["exam_category"], name)
+
+        updated = await self.client.put(
+            f"/api/admin/exam-categories/{category_id}",
+            json={"name": renamed, "description": "已更新", "sort_order": 1000},
+            headers=self.admin_headers,
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["name"], renamed)
+
+        renamed_chapters = await self.client.get(
+            "/api/questions/chapters", params={"exam_category": renamed}
+        )
+        self.assertEqual(renamed_chapters.status_code, 200, renamed_chapters.text)
+        self.assertTrue(renamed_chapters.json())
+
+        deleted = await self.client.delete(
+            f"/api/admin/exam-categories/{category_id}",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        deleted_section = await self.client.delete(
+            f"/api/admin/exam-categories/{section.json()['id']}",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(deleted_section.status_code, 200, deleted_section.text)
+        deleted_root = await self.client.delete(
+            f"/api/admin/exam-categories/{root.json()['id']}",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(deleted_root.status_code, 200, deleted_root.text)
+
     async def test_admin_question_rejects_invalid_chapter_and_answer(self):
         bad_chapter = await self.client.post(
             "/api/admin/questions",

@@ -3,9 +3,25 @@ set -euo pipefail
 
 PROJECT_DIR="/Users/ahuai/Documents/medexam"
 FLUTTER_BIN="/Users/ahuai/development/flutter/bin/flutter"
-API_HOST="127.0.0.1"
+API_HOST="0.0.0.0"
 API_PORT="8000"
+WEB_HOST="0.0.0.0"
 WEB_PORT="5275"
+
+detect_lan_ip() {
+  local ip
+  ip="$(ipconfig getifaddr en0 2>/dev/null || true)"
+  if [[ -z "${ip}" ]]; then
+    ip="$(ipconfig getifaddr en1 2>/dev/null || true)"
+  fi
+  if [[ -z "${ip}" ]]; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  fi
+  if [[ -z "${ip}" ]]; then
+    ip="127.0.0.1"
+  fi
+  echo "${ip}"
+}
 
 cleanup_port() {
   local port="$1"
@@ -39,18 +55,30 @@ cleanup_api() {
 cleanup_port "${API_PORT}"
 cleanup_port "${WEB_PORT}"
 
+LAN_IP="$(detect_lan_ip)"
+API_BASE_URL="${API_BASE_URL:-http://${LAN_IP}:${API_PORT}}"
+LOCAL_WEB_URL="http://127.0.0.1:${WEB_PORT}/"
+LAN_WEB_URL="http://${LAN_IP}:${WEB_PORT}/"
+LAN_ADMIN_URL="http://${LAN_IP}:${WEB_PORT}/#/admin"
+
 cd "${PROJECT_DIR}/backend"
 python3 -m uvicorn app.main:app --host "${API_HOST}" --port "${API_PORT}" &
 API_PID="$!"
 trap cleanup_api EXIT
 
-echo "Backend: http://${API_HOST}:${API_PORT}"
-echo "Student app: http://127.0.0.1:${WEB_PORT}/"
-echo "Admin: http://127.0.0.1:${WEB_PORT}/#/admin"
+echo
+echo "MedExam local network server"
+echo "Backend: http://${LAN_IP}:${API_PORT}"
+echo "Student app (share this): ${LAN_WEB_URL}"
+echo "Admin (share this): ${LAN_ADMIN_URL}"
+echo "This Mac local URL: ${LOCAL_WEB_URL}"
+echo "API_BASE_URL: ${API_BASE_URL}"
+echo
 
 cd "${PROJECT_DIR}/app"
-"${FLUTTER_BIN}" build web --pwa-strategy=none
+"${FLUTTER_BIN}" build web --pwa-strategy=none \
+  --dart-define="API_BASE_URL=${API_BASE_URL}"
 python3 "${PROJECT_DIR}/scripts/serve_web.py" \
   --directory "${PROJECT_DIR}/app/build/web" \
-  --host 127.0.0.1 \
+  --host "${WEB_HOST}" \
   --port "${WEB_PORT}"

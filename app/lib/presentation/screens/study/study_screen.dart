@@ -1140,6 +1140,9 @@ class WrongQuestionTab extends StatefulWidget {
 }
 
 class _WrongQuestionTabState extends State<WrongQuestionTab> {
+  String _wrongStatusFilter = 'all';
+  String? _wrongChapterFilter;
+
   @override
   void initState() {
     super.initState();
@@ -1168,6 +1171,16 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
             provider.wrongQuestions.where((w) => w.isMastered).length;
         final total = provider.wrongQuestionTotalCount;
         final loaded = provider.wrongQuestions.length;
+        final chapters = context.watch<QuestionProvider>().chapters;
+        final filteredWrongs = provider.wrongQuestions.where((w) {
+          if (_wrongStatusFilter == 'pending' && w.isMastered) return false;
+          if (_wrongStatusFilter == 'mastered' && !w.isMastered) return false;
+          if (_wrongChapterFilter != null &&
+              !w.questionTags.contains(_wrongChapterFilter)) {
+            return false;
+          }
+          return true;
+        }).toList();
 
         return CustomScrollView(
           slivers: [
@@ -1223,91 +1236,132 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
                   ),
                 ),
               ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final w = provider.wrongQuestions[index];
-                      return InkWell(
-                        borderRadius: BorderRadius.circular(14),
-                        onTap: () => _showReviewSheet(context, w),
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: AppTheme.divider),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 42,
-                                height: 42,
-                                decoration: BoxDecoration(
-                                  color: w.isMastered
-                                      ? AppTheme.success.withOpacity(0.1)
-                                      : AppTheme.error.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Icon(
-                                  w.isMastered
-                                      ? Icons.check_circle_rounded
-                                      : Icons.close_rounded,
-                                  color: w.isMastered
-                                      ? AppTheme.success
-                                      : AppTheme.error,
-                                  size: 22,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                        w.questionContent?.isNotEmpty == true
-                                            ? w.questionContent!
-                                            : '错题 #${w.questionId}',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.w600)),
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      children: [
-                                        if (w.wrongReason != null) ...[
-                                          _MiniTag(w.wrongReason!),
-                                          const SizedBox(width: 8),
-                                        ],
-                                        Icon(Icons.refresh_rounded,
-                                            size: 14, color: AppTheme.textHint),
-                                        const SizedBox(width: 2),
-                                        Text('${w.reviewCount} 次',
-                                            style: const TextStyle(
-                                                fontSize: 12,
-                                                color: AppTheme.textSecondary)),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (w.isMastered)
-                                const Icon(Icons.check_circle_rounded,
-                                    color: AppTheme.success, size: 22)
-                              else
-                                const Icon(Icons.chevron_right,
-                                    color: AppTheme.textHint, size: 20),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                    childCount: provider.wrongQuestions.length,
-                  ),
+              SliverToBoxAdapter(
+                child: _WrongFilterBar(
+                  statusFilter: _wrongStatusFilter,
+                  chapterFilter: _wrongChapterFilter,
+                  chapters: chapters.map((chapter) => chapter.name).toList(),
+                  onStatusChanged: (value) {
+                    setState(() => _wrongStatusFilter = value);
+                  },
+                  onChapterChanged: (value) {
+                    setState(() => _wrongChapterFilter = value);
+                  },
                 ),
               ),
+              if (filteredWrongs.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                    child: _InlineEmptyBox(
+                      icon: Icons.filter_alt_off_rounded,
+                      title: '当前筛选下暂无错题',
+                      subtitle: '可以切换筛选条件，或先完成一组练习积累错题。',
+                    ),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final w = filteredWrongs[index];
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () => _showReviewSheet(context, w),
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: AppTheme.divider),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: w.isMastered
+                                        ? AppTheme.success.withOpacity(0.1)
+                                        : AppTheme.error.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Icon(
+                                    w.isMastered
+                                        ? Icons.check_circle_rounded
+                                        : Icons.close_rounded,
+                                    color: w.isMastered
+                                        ? AppTheme.success
+                                        : AppTheme.error,
+                                    size: 22,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                          w.questionContent?.isNotEmpty == true
+                                              ? w.questionContent!
+                                              : '错题 #${w.questionId}',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w600)),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          _MiniTag(w.chapterName),
+                                          const SizedBox(width: 8),
+                                          if (w.wrongReason != null) ...[
+                                            _MiniTag(w.wrongReason!),
+                                            const SizedBox(width: 8),
+                                          ],
+                                          Icon(Icons.refresh_rounded,
+                                              size: 14,
+                                              color: AppTheme.textHint),
+                                          const SizedBox(width: 2),
+                                          Text('${w.reviewCount} 次',
+                                              style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color:
+                                                      AppTheme.textSecondary)),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${w.masteryLabel} · ${w.nextReviewLabel}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: w.isMastered
+                                              ? AppTheme.success
+                                              : AppTheme.textSecondary,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (w.isMastered)
+                                  const Icon(Icons.check_circle_rounded,
+                                      color: AppTheme.success, size: 22)
+                                else
+                                  const Icon(Icons.chevron_right,
+                                      color: AppTheme.textHint, size: 20),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                      childCount: filteredWrongs.length,
+                    ),
+                  ),
+                ),
               SliverToBoxAdapter(
                 child: _WrongLoadMoreFooter(
                   loaded: loaded,
@@ -1612,6 +1666,21 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
                                           .showSnackBar(
                                         const SnackBar(content: Text('复习记录失败')),
                                       );
+                                    } else {
+                                      final mastered =
+                                          correct && wrong.reviewCount + 1 >= 3;
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            correct
+                                                ? mastered
+                                                    ? '本次复习答对，已掌握 1 题；建议明天继续巩固相近知识点'
+                                                    : '本次复习答对，正确率 100%；累计复习 ${wrong.reviewCount + 1} 次'
+                                                : '本次复习答错，正确率 0%；系统已安排明天再次复习',
+                                          ),
+                                        ),
+                                      );
                                     }
                                   },
                         child: Text(isCorrect == null ? '提交答案' : '完成'),
@@ -1675,6 +1744,131 @@ class _WrongLoadMoreFooter extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _WrongFilterBar extends StatelessWidget {
+  final String statusFilter;
+  final String? chapterFilter;
+  final List<String> chapters;
+  final ValueChanged<String> onStatusChanged;
+  final ValueChanged<String?> onChapterChanged;
+
+  const _WrongFilterBar({
+    required this.statusFilter,
+    required this.chapterFilter,
+    required this.chapters,
+    required this.onStatusChanged,
+    required this.onChapterChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleChapters = chapters.take(8).toList();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '筛选错题',
+            style: TextStyle(
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _filterChip('全部', 'all'),
+              _filterChip('待复习', 'pending'),
+              _filterChip('已掌握', 'mastered'),
+            ],
+          ),
+          if (visibleChapters.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('全部章节'),
+                  selected: chapterFilter == null,
+                  onSelected: (_) => onChapterChanged(null),
+                ),
+                ...visibleChapters.map(
+                  (chapter) => ChoiceChip(
+                    label: Text(chapter),
+                    selected: chapterFilter == chapter,
+                    onSelected: (_) => onChapterChanged(chapter),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _filterChip(String label, String value) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: statusFilter == value,
+      onSelected: (_) => onStatusChanged(value),
+    );
+  }
+}
+
+class _InlineEmptyBox extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _InlineEmptyBox({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: AppTheme.textHint, size: 36),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppTheme.textSecondary, height: 1.4),
+          ),
+        ],
       ),
     );
   }

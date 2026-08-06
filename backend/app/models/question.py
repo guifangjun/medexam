@@ -16,6 +16,20 @@ class Chapter(Base):
     subjects = Column(JSON, default=list)  # 包含的科目，如 ["内科学", "外科学"]
 
 
+class ExamCategory(Base):
+    """考试类别配置"""
+    __tablename__ = "exam_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), nullable=False, unique=True, index=True)
+    parent_id = Column(Integer, ForeignKey("exam_categories.id"), nullable=True, index=True)
+    level = Column(Integer, nullable=False, default=1)
+    description = Column(Text, nullable=True)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now, server_default=func.now())
+
+
 class Question(Base):
     """题目"""
     __tablename__ = "questions"

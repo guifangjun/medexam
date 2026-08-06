@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/providers/auth_provider.dart';
+import '../../../data/providers/exam_category_provider.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/app_messenger.dart';
@@ -25,7 +26,7 @@ class _LoginScreenState extends State<LoginScreen>
   final _smsCodeController = TextEditingController();
   final _fullNameController = TextEditingController();
   bool _isLogin = true;
-  bool _useSmsLogin = true;
+  bool _useSmsLogin = false;
   bool _obscurePassword = true;
   bool _isSendingSms = false;
   int _smsCooldownSeconds = 0;
@@ -99,6 +100,37 @@ class _LoginScreenState extends State<LoginScreen>
     rootScaffoldMessengerKey.currentState?.showSnackBar(
       SnackBar(
         content: Text(auth.error ?? '操作失败'),
+        backgroundColor: AppTheme.error,
+      ),
+    );
+  }
+
+  Future<void> _loginWithDemoAccount() async {
+    setState(() {
+      _isLogin = true;
+      _useSmsLogin = false;
+      _usernameController.text = '13800000000';
+      _passwordController.text = 'demo123';
+      _smsCodeController.clear();
+      _resetSmsState();
+    });
+
+    final auth = context.read<AuthProvider>();
+    final success = await auth.login('13800000000', 'demo123');
+    if (!mounted) return;
+    if (success) {
+      final name = auth.user?.fullName ?? auth.user?.username;
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        SnackBar(
+          content: Text('登录成功${name != null ? "，欢迎 $name" : ""}'),
+          backgroundColor: AppTheme.success,
+        ),
+      );
+      return;
+    }
+    rootScaffoldMessengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: Text(auth.error ?? '演示账号登录失败'),
         backgroundColor: AppTheme.error,
       ),
     );
@@ -416,7 +448,7 @@ class _LoginScreenState extends State<LoginScreen>
                             onTap: () {
                               setState(() {
                                 _isLogin = !_isLogin;
-                                _useSmsLogin = _isLogin;
+                                _useSmsLogin = false;
                                 _smsCodeController.clear();
                                 _passwordController.clear();
                                 _resetSmsState();
@@ -446,18 +478,10 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Widget _buildDemoAccountButton() {
+    final auth = context.watch<AuthProvider>();
     return InkWell(
       borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-      onTap: () {
-        setState(() {
-          _isLogin = true;
-          _useSmsLogin = false;
-          _usernameController.text = '13800000000';
-          _passwordController.text = 'demo123';
-          _smsCodeController.clear();
-          _resetSmsState();
-        });
-      },
+      onTap: auth.isLoading ? null : _loginWithDemoAccount,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -476,7 +500,7 @@ class _LoginScreenState extends State<LoginScreen>
             ),
             SizedBox(width: 8),
             Text(
-              '使用演示账号 13800000000 / demo123',
+              '一键登录演示账号 13800000000 / demo123',
               style: TextStyle(
                 color: AppTheme.primary,
                 fontWeight: FontWeight.w700,
@@ -562,13 +586,24 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Widget _buildTargetExamSelector() {
+    final categories = context.watch<ExamCategoryProvider>().leafCategories;
+    final selected = categories.contains(_targetExam)
+        ? _targetExam
+        : categories.isNotEmpty
+            ? categories.first
+            : AppConstants.examCategories.first;
+    if (selected != _targetExam) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _targetExam = selected);
+      });
+    }
     return DropdownButtonFormField<String>(
-      value: _targetExam,
+      value: selected,
       decoration: const InputDecoration(
         labelText: '考试分类',
         prefixIcon: Icon(Icons.category_outlined, size: 20),
       ),
-      items: AppConstants.examCategories
+      items: categories
           .map((category) => DropdownMenuItem(
                 value: category,
                 child: Text(category),

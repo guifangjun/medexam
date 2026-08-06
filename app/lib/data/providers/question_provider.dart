@@ -7,7 +7,7 @@ class QuestionProvider extends ChangeNotifier {
   final ApiService _api = ApiService();
   bool _useMockData = false; // 演示模式开关
 
-  String _examCategory = '执业资格';
+  String _examCategory = '临床执业医师';
   String _practiceMode = 'chapter';
   String? _practiceTitle;
   int? _practiceChapterId;
@@ -18,6 +18,8 @@ class QuestionProvider extends ChangeNotifier {
   String? _recentStudyMode;
   String? _recentStudyTag;
   int _recentStudyLimit = 20;
+  List<int> _recentQuestionIds = [];
+  int _recentStudyIndex = 0;
   List<Chapter> _chapters = [];
   List<Question> _currentQuestions = [];
   int _currentIndex = 0;
@@ -63,6 +65,8 @@ class QuestionProvider extends ChangeNotifier {
   String? get recentStudyMode => _recentStudyMode;
   String? get recentStudyTag => _recentStudyTag;
   int get recentStudyLimit => _recentStudyLimit;
+  List<int> get recentQuestionIds => List.unmodifiable(_recentQuestionIds);
+  int get recentStudyIndex => _recentStudyIndex;
   List<Chapter> get chapters => _chapters;
   List<Question> get currentQuestions => _currentQuestions;
   int get currentIndex => _currentIndex;
@@ -368,6 +372,8 @@ class QuestionProvider extends ChangeNotifier {
       _recentStudyMode = null;
       _recentStudyTag = null;
       _recentStudyLimit = 20;
+      _recentQuestionIds = [];
+      _recentStudyIndex = 0;
       _error = null;
       notifyListeners();
       loadChapters();
@@ -449,6 +455,8 @@ class QuestionProvider extends ChangeNotifier {
       _recentStudyMode = mode;
       _recentStudyTag = tag;
       _recentStudyLimit = limit;
+      _recentQuestionIds = _currentQuestions.map((q) => q.id).toList();
+      _recentStudyIndex = 0;
       if (_currentQuestions.isNotEmpty) {
         _error = null;
       }
@@ -480,6 +488,8 @@ class QuestionProvider extends ChangeNotifier {
         _recentStudyMode = mode;
         _recentStudyTag = tag;
         _recentStudyLimit = limit;
+        _recentQuestionIds = [];
+        _recentStudyIndex = 0;
       }
     } finally {
       _isLoading = false;
@@ -765,10 +775,35 @@ class QuestionProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> continueRecentPractice() async {
+    final title = _recentStudyTitle;
+    if (title == null) return;
+    final targetIndex = _recentStudyIndex;
+    await loadPracticeQuestions(
+      chapterId: _recentChapterId,
+      questionIds: _recentQuestionIds,
+      mode: _recentStudyMode ?? 'chapter',
+      tag: _recentStudyTag,
+      title: title,
+      limit: _recentStudyLimit,
+    );
+    if (_currentQuestions.isNotEmpty) {
+      _currentIndex = targetIndex.clamp(0, _currentQuestions.length - 1);
+      _currentQuestion = _currentQuestions[_currentIndex];
+      _recentStudyIndex = _currentIndex;
+      _recentStudyAction = '继续$title · 第 ${_currentIndex + 1} 题';
+      notifyListeners();
+    }
+  }
+
   void nextQuestion() {
     if (_currentIndex < _currentQuestions.length - 1) {
       _currentIndex++;
       _currentQuestion = _currentQuestions[_currentIndex];
+      _recentStudyIndex = _currentIndex;
+      if (_practiceTitle != null) {
+        _recentStudyAction = '继续$_practiceTitle · 第 ${_currentIndex + 1} 题';
+      }
       _lastResult = null;
       notifyListeners();
     }
@@ -778,6 +813,10 @@ class QuestionProvider extends ChangeNotifier {
     if (_currentIndex > 0) {
       _currentIndex--;
       _currentQuestion = _currentQuestions[_currentIndex];
+      _recentStudyIndex = _currentIndex;
+      if (_practiceTitle != null) {
+        _recentStudyAction = '继续$_practiceTitle · 第 ${_currentIndex + 1} 题';
+      }
       _lastResult = null;
       notifyListeners();
     }
@@ -817,6 +856,8 @@ class QuestionProvider extends ChangeNotifier {
     _recentStudyMode = null;
     _recentStudyTag = null;
     _recentStudyLimit = 20;
+    _recentQuestionIds = [];
+    _recentStudyIndex = 0;
     _isLoading = false;
     _error = null;
     notifyListeners();

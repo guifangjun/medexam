@@ -10,6 +10,8 @@ import '../../../data/providers/question_provider.dart';
 import '../../../data/providers/study_provider.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../widgets/exam_category_picker.dart';
+import '../course/course_screen.dart';
 import '../practice/practice_screen.dart';
 
 class ExamScreen extends StatefulWidget {
@@ -88,9 +90,21 @@ class _ExamScreenState extends State<ExamScreen> {
                       size: 32, color: Colors.white),
                 ),
                 const SizedBox(height: 16),
-                Text('$examCategory模考',
-                    style: const TextStyle(
-                        fontSize: 22,
+                ExamCategoryPickerButton(
+                  selected: examCategory,
+                  onChanged: _switchExamCategory,
+                  plain: true,
+                  textStyle: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text('模考',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 15,
                         fontWeight: FontWeight.w700,
                         color: Colors.white)),
                 const SizedBox(height: 6),
@@ -100,14 +114,6 @@ class _ExamScreenState extends State<ExamScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
-          const Text('考试分类',
-              style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.textPrimary,
-                  fontSize: 15)),
-          const SizedBox(height: 12),
-          _buildExamCategorySelector(provider),
           const SizedBox(height: 24),
           const Text('选择题量',
               style: TextStyle(
@@ -236,35 +242,6 @@ class _ExamScreenState extends State<ExamScreen> {
           _ExamHistorySection(attempts: provider.examAttempts),
         ],
       ),
-    );
-  }
-
-  Widget _buildExamCategorySelector(QuestionProvider provider) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: AppConstants.examCategories.map((category) {
-        final isSelected = category == provider.examCategory;
-        return ChoiceChip(
-          label: Text(category),
-          selected: isSelected,
-          showCheckmark: false,
-          labelStyle: TextStyle(
-            color: isSelected ? Colors.white : AppTheme.textSecondary,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-          selectedColor: AppTheme.primary,
-          backgroundColor: Colors.white,
-          side: BorderSide(
-            color: isSelected ? AppTheme.primary : AppTheme.divider,
-          ),
-          onSelected: (_) {
-            if (isSelected) return;
-            _switchExamCategory(category);
-          },
-        );
-      }).toList(),
     );
   }
 
@@ -1063,6 +1040,17 @@ class _ExamNextActionCard extends StatelessWidget {
                   ),
                 ),
               _ActionChipButton(
+                icon: Icons.video_library_rounded,
+                label: '查看推荐课程',
+                color: AppTheme.accent,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const CourseScreen(initialTab: 1),
+                  ),
+                ),
+              ),
+              _ActionChipButton(
                 icon: Icons.refresh_rounded,
                 label: '返回模考首页',
                 color: AppTheme.primary,
@@ -1080,7 +1068,7 @@ class _ExamNextActionCard extends StatelessWidget {
       return '这次发挥不错，可以回到模考首页再开一套限时模考，保持考试手感。';
     }
     if (weakTag != null) {
-      return '建议先处理失分最多的知识点“$weakTag”，再回到模考检验是否真正补上短板。';
+      return '薄弱点集中在“$weakTag”。建议先专项练习，再看对应精讲课程，最后复习本次错题。';
     }
     if (result.wrongQuestions.isNotEmpty) {
       return '先把本次错题复习一遍，确认每道题为什么错，再进入下一轮训练。';
