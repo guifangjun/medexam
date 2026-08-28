@@ -175,6 +175,31 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> updateLearningGoal({
+    required DateTime targetDate,
+    required int dailyGoal,
+  }) async {
+    if (!_isLoggedIn) return false;
+    try {
+      _error = null;
+      final res = await _api.updateMe({
+        'target_date': targetDate.toIso8601String(),
+        'daily_goal': dailyGoal,
+      });
+      _user = User.fromJson(res.data);
+      notifyListeners();
+      return true;
+    } on DioException catch (e) {
+      _error = _extractErrorMessage(e, '考试日期保存失败');
+      notifyListeners();
+      return false;
+    } catch (_) {
+      _error = '考试日期保存失败';
+      notifyListeners();
+      return false;
+    }
+  }
+
   void clearError() {
     _error = null;
     notifyListeners();

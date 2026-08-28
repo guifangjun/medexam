@@ -32,3 +32,28 @@ class KnowledgePoint(Base):
     difficulty = Column(Integer, default=3)  # 1-5
     exam_frequency = Column(Integer, default=0)  # 考试频次
     created_at = Column(DateTime, default=datetime.now, server_default=func.now())
+
+
+class AIKnowledgeCard(Base):
+    """用户从 AI 讲解中沉淀的个人记忆卡"""
+    __tablename__ = "ai_knowledge_cards"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    exam_category = Column(String(50), nullable=False, index=True)
+    source_message_id = Column(
+        Integer, ForeignKey("ai_conversations.id"), nullable=True, index=True
+    )
+    related_question_id = Column(
+        Integer, ForeignKey("questions.id"), nullable=True
+    )
+    title = Column(String(120), nullable=False)
+    front = Column(Text, nullable=False)
+    back = Column(Text, nullable=False)
+    mnemonic = Column(Text, nullable=True)
+    tags = Column(JSON, default=list)
+    mastery_level = Column(Integer, default=0)
+    review_count = Column(Integer, default=0)
+    last_reviewed_at = Column(DateTime, nullable=True)
+    next_review_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, server_default=func.now())

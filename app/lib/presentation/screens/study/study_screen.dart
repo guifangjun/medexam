@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../data/models/study.dart';
 import '../../../data/models/conversation.dart';
+import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/ai_chat_provider.dart';
 import '../../../data/providers/study_provider.dart';
 import '../../../data/providers/question_provider.dart';
@@ -822,135 +823,812 @@ class _PlanTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<StudyProvider>(
       builder: (context, provider, _) {
+        final ai = context.watch<AIChatProvider>();
+        final examCategory = context.watch<QuestionProvider>().examCategory;
         if (provider.isLoading) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (provider.plans.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.event_note_outlined,
-                      size: 64, color: AppTheme.textHint),
-                  const SizedBox(height: 16),
-                  const Text('暂无学习计划',
-                      style: TextStyle(
-                          fontSize: 16, color: AppTheme.textSecondary)),
-                  const SizedBox(height: 8),
-                  const Text('创建计划后，按当前考试目标推进复习',
-                      style: TextStyle(color: AppTheme.textHint)),
-                  const SizedBox(height: 18),
-                  ElevatedButton.icon(
-                    onPressed: () => _showCreatePlanDialog(context),
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('创建学习计划'),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-        return ListView.builder(
+        final sprintPlan =
+            ai.sprintPlanExamCategory == examCategory ? ai.sprintPlan : null;
+        return ListView(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 96),
-          itemCount: provider.plans.length + 1,
-          itemBuilder: (context, index) {
-            if (index == 0) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _showCreatePlanDialog(context),
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('创建新的学习计划'),
-                  ),
+          children: [
+            _buildSprintPlannerCard(
+              context,
+              ai: ai,
+              examCategory: examCategory,
+              plan: sprintPlan,
+            ),
+            const SizedBox(height: 16),
+            if (provider.plans.isEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 28,
                 ),
-              );
-            }
-            final plan = provider.plans[index - 1];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: AppTheme.divider),
                 ),
                 child: Column(
+                  children: [
+                    Icon(
+                      Icons.event_note_outlined,
+                      size: 48,
+                      color: AppTheme.textHint,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      '暂无已应用的学习计划',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      '让 AI 先根据考期和薄弱点规划，或手动创建计划。',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: () => _showCreatePlanDialog(context),
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('手动创建计划'),
+                    ),
+                  ],
+                ),
+              )
+            else ...[
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: () => _showCreatePlanDialog(context),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('创建新的学习计划'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ...provider.plans.map(
+                (plan) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _buildPlanCard(context, plan),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSprintPlannerCard(
+    BuildContext context, {
+    required AIChatProvider ai,
+    required String examCategory,
+    required AISprintPlan? plan,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF5B5FEF), Color(0xFF8A64F6)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF5B5FEF).withOpacity(0.2),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.16),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: Colors.white,
+                  size: 23,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: AppTheme.primary.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(Icons.menu_book_rounded,
-                              color: AppTheme.primary, size: 20),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(plan.title ?? '学习计划',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600)),
-                              Text(
-                                '${plan.dailyQuestions ?? 20} 题/天',
-                                style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppTheme.textSecondary),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: plan.isActive
-                                ? AppTheme.accent.withOpacity(0.1)
-                                : AppTheme.textHint.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            plan.isActive ? '进行中' : '历史计划',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: plan.isActive
-                                  ? AppTheme.accent
-                                  : AppTheme.textHint,
-                            ),
-                          ),
-                        ),
-                      ],
+                    Text(
+                      'AI 冲刺规划师',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 44,
-                      child: ElevatedButton.icon(
-                        onPressed: () => _startPlanStudy(context, plan),
-                        icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                        label: const Text('开始学习'),
+                    SizedBox(height: 2),
+                    Text(
+                      '考期 × 薄弱点 × 每日时间，生成可执行计划',
+                      style: TextStyle(
+                        color: Color(0xFFE8E7FF),
+                        fontSize: 12,
                       ),
                     ),
                   ],
                 ),
               ),
-            );
-          },
-        );
-      },
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.16),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  'AI',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            plan == null
+                ? '读取你在「$examCategory」的正确率和章节覆盖，自动拆分基础、强化、冲刺阶段。'
+                : '已生成 ${plan.daysRemaining} 天计划 · 每天 ${plan.dailyMinutes} 分钟 · ${plan.dailyQuestions} 题',
+            style: const TextStyle(
+              color: Colors.white,
+              height: 1.45,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: ai.isLoadingSprintPlan
+                  ? null
+                  : () {
+                      if (plan != null) {
+                        _showSprintPlanPreview(context, plan);
+                      } else {
+                        _openSprintPlanner(context);
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF5B5FEF),
+              ),
+              icon: ai.isLoadingSprintPlan
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      plan == null
+                          ? Icons.auto_fix_high_rounded
+                          : Icons.visibility_outlined,
+                      size: 19,
+                    ),
+              label: Text(plan == null ? '生成我的冲刺计划' : '查看 AI 冲刺方案'),
+            ),
+          ),
+          if (plan != null) ...[
+            const SizedBox(height: 8),
+            Center(
+              child: TextButton(
+                onPressed: () => _openSprintPlanner(context),
+                style: TextButton.styleFrom(foregroundColor: Colors.white),
+                child: const Text('重新设置考期与学习强度'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openSprintPlanner(BuildContext context) async {
+    final now = DateTime.now();
+    final savedDate = context.read<AuthProvider>().user?.targetDate;
+    var examDate = savedDate != null && savedDate.isAfter(now)
+        ? savedDate
+        : now.add(const Duration(days: 42));
+    var dailyMinutes = 60;
+    var intensity = 'steady';
+    var isGenerating = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Container(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            14,
+            20,
+            20 + MediaQuery.of(sheetContext).viewInsets.bottom,
+          ),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppTheme.divider,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    '生成 AI 冲刺计划',
+                    style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'AI 会读取当前科目的做题记录和章节覆盖，计划生成后可一键应用。',
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    '考试日期',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  InkWell(
+                    onTap: isGenerating
+                        ? null
+                        : () async {
+                            final picked = await showDatePicker(
+                              context: sheetContext,
+                              initialDate: examDate,
+                              firstDate: now.add(const Duration(days: 1)),
+                              lastDate: now.add(const Duration(days: 730)),
+                              helpText: '选择目标考试日期',
+                            );
+                            if (picked != null) {
+                              setSheetState(() => examDate = picked);
+                            }
+                          },
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppTheme.divider),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.event_available_rounded,
+                            color: Color(0xFF5B5FEF),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _formatDate(examDate),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right_rounded),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          '每日可学习时间',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      Text(
+                        '$dailyMinutes 分钟',
+                        style: const TextStyle(
+                          color: Color(0xFF5B5FEF),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: dailyMinutes.toDouble(),
+                    min: 20,
+                    max: 180,
+                    divisions: 16,
+                    label: '$dailyMinutes 分钟',
+                    onChanged: isGenerating
+                        ? null
+                        : (value) => setSheetState(
+                              () => dailyMinutes = value.round(),
+                            ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '学习强度',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _intensityChip(
+                        label: '稳步',
+                        value: 'steady',
+                        selected: intensity,
+                        enabled: !isGenerating,
+                        onSelected: (value) =>
+                            setSheetState(() => intensity = value),
+                      ),
+                      _intensityChip(
+                        label: '加速',
+                        value: 'accelerated',
+                        selected: intensity,
+                        enabled: !isGenerating,
+                        onSelected: (value) =>
+                            setSheetState(() => intensity = value),
+                      ),
+                      _intensityChip(
+                        label: '冲刺',
+                        value: 'sprint',
+                        selected: intensity,
+                        enabled: !isGenerating,
+                        onSelected: (value) =>
+                            setSheetState(() => intensity = value),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 22),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      onPressed: isGenerating
+                          ? null
+                          : () async {
+                              setSheetState(() => isGenerating = true);
+                              final ai = context.read<AIChatProvider>();
+                              final plan = await ai.buildSprintPlan(
+                                examCategory: context
+                                    .read<QuestionProvider>()
+                                    .examCategory,
+                                examDate: examDate,
+                                dailyMinutes: dailyMinutes,
+                                intensity: intensity,
+                              );
+                              if (!context.mounted) return;
+                              if (sheetContext.mounted) {
+                                Navigator.pop(sheetContext);
+                              }
+                              if (plan == null) {
+                                rootScaffoldMessengerKey.currentState
+                                    ?.showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      ai.error ?? 'AI 冲刺计划生成失败，请稍后重试',
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+                              _showSprintPlanPreview(context, plan);
+                            },
+                      icon: isGenerating
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.auto_awesome_rounded),
+                      label: Text(isGenerating ? 'AI 正在规划...' : '生成个性化计划'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _intensityChip({
+    required String label,
+    required String value,
+    required String selected,
+    required bool enabled,
+    required ValueChanged<String> onSelected,
+  }) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected == value,
+      onSelected: enabled ? (_) => onSelected(value) : null,
+      selectedColor: const Color(0xFF5B5FEF).withOpacity(0.14),
+      labelStyle: TextStyle(
+        color: selected == value
+            ? const Color(0xFF5B5FEF)
+            : AppTheme.textSecondary,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+
+  Future<void> _showSprintPlanPreview(
+    BuildContext context,
+    AISprintPlan plan,
+  ) async {
+    var isApplying = false;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => DraggableScrollableSheet(
+          initialChildSize: 0.9,
+          minChildSize: 0.6,
+          maxChildSize: 0.96,
+          expand: false,
+          builder: (_, scrollController) => Container(
+            decoration: const BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          plan.title,
+                          style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(sheetContext),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF5B5FEF).withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: const Color(0xFF5B5FEF).withOpacity(0.15),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              plan.summary,
+                              style: const TextStyle(
+                                height: 1.55,
+                                color: AppTheme.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _planMetric('${plan.daysRemaining} 天', '考期'),
+                                _planMetric('${plan.dailyMinutes} 分', '每天'),
+                                _planMetric('${plan.dailyQuestions} 题', '题量'),
+                                _planMetric(
+                                  '${plan.weeklyMockExams} 次',
+                                  '周模考',
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const _SprintSectionTitle('优先提分章节'),
+                      const SizedBox(height: 10),
+                      if (plan.priorityChapters.isEmpty)
+                        const Text(
+                          '暂无章节数据，先完成一组练习后再校准。',
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        )
+                      else
+                        ...plan.priorityChapters.take(4).map(
+                              (item) => _SprintPriorityTile(item: item),
+                            ),
+                      const SizedBox(height: 16),
+                      const _SprintSectionTitle('分阶段路线'),
+                      const SizedBox(height: 10),
+                      ...plan.phases.asMap().entries.map(
+                            (entry) => _SprintPhaseCard(
+                              index: entry.key + 1,
+                              phase: entry.value,
+                            ),
+                          ),
+                      const SizedBox(height: 16),
+                      const _SprintSectionTitle('每天怎么学'),
+                      const SizedBox(height: 10),
+                      ...plan.dailySchedule.map(
+                        (item) => _SprintBullet(
+                          icon: Icons.schedule_rounded,
+                          text: item,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const _SprintSectionTitle('今天先做这三步'),
+                      const SizedBox(height: 10),
+                      ...plan.todayActions.asMap().entries.map(
+                            (entry) => _SprintBullet(
+                              leading: '${entry.key + 1}',
+                              text: entry.value,
+                              color: const Color(0xFF5B5FEF),
+                            ),
+                          ),
+                      if (plan.riskAlerts.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const _SprintSectionTitle('AI 风险提醒'),
+                        const SizedBox(height: 10),
+                        ...plan.riskAlerts.map(
+                          (item) => _SprintBullet(
+                            icon: Icons.info_outline_rounded,
+                            text: item,
+                            color: AppTheme.accent,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(top: BorderSide(color: AppTheme.divider)),
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: isApplying
+                            ? null
+                            : () async {
+                                setSheetState(() => isApplying = true);
+                                final applied =
+                                    await _applySprintPlan(context, plan);
+                                if (!context.mounted) return;
+                                if (applied && sheetContext.mounted) {
+                                  Navigator.pop(sheetContext);
+                                } else if (sheetContext.mounted) {
+                                  setSheetState(() => isApplying = false);
+                                }
+                              },
+                        icon: isApplying
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.rocket_launch_rounded),
+                        label: Text(isApplying ? '正在应用计划...' : '一键应用为学习计划'),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _planMetric(String value, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        '$value · $label',
+        style: const TextStyle(
+          color: Color(0xFF5B5FEF),
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _applySprintPlan(
+    BuildContext context,
+    AISprintPlan plan,
+  ) async {
+    final auth = context.read<AuthProvider>();
+    final goalSaved = await auth.updateLearningGoal(
+      targetDate: plan.examDate,
+      dailyGoal: plan.dailyQuestions,
+    );
+    if (!context.mounted) return false;
+    if (!goalSaved) {
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text(auth.error ?? '考试日期保存失败')),
+      );
+      return false;
+    }
+    final study = context.read<StudyProvider>();
+    final success = await study.createStudyPlan(
+      title: 'AI ${plan.daysRemaining} 天冲刺计划',
+      startDate: DateTime.now(),
+      endDate: plan.examDate,
+      targetChapters:
+          plan.priorityChapters.map((item) => item.chapterId).toList(),
+      dailyQuestions: plan.dailyQuestions,
+      examCategory: plan.examCategory,
+    );
+    if (!success) {
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text(study.error ?? '学习计划应用失败')),
+      );
+      return false;
+    }
+    await study.loadPrescription(examCategory: plan.examCategory);
+    rootScaffoldMessengerKey.currentState?.showSnackBar(
+      const SnackBar(
+        content: Text('AI 冲刺计划已应用，今日任务已同步更新'),
+        backgroundColor: AppTheme.success,
+      ),
+    );
+    return true;
+  }
+
+  String _formatDate(DateTime date) =>
+      '${date.year} 年 ${date.month} 月 ${date.day} 日';
+
+  Widget _buildPlanCard(BuildContext context, StudyPlan plan) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.menu_book_rounded,
+                  color: AppTheme.primary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      plan.title,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      '${plan.dailyQuestions} 题/天',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: plan.isActive
+                      ? AppTheme.accent.withOpacity(0.1)
+                      : AppTheme.textHint.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  plan.isActive ? '进行中' : '历史计划',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: plan.isActive ? AppTheme.accent : AppTheme.textHint,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: () => _startPlanStudy(context, plan),
+              icon: const Icon(Icons.play_arrow_rounded, size: 20),
+              label: const Text('开始学习'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1133,6 +1811,256 @@ class _PlanTab extends StatelessWidget {
   }
 }
 
+class _SprintSectionTitle extends StatelessWidget {
+  final String title;
+
+  const _SprintSectionTitle(this.title);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: const TextStyle(
+        color: AppTheme.textPrimary,
+        fontSize: 16,
+        fontWeight: FontWeight.w800,
+      ),
+    );
+  }
+}
+
+class _SprintPriorityTile extends StatelessWidget {
+  final AISprintPriorityChapter item;
+
+  const _SprintPriorityTile({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final accuracy = item.accuracyRate == null
+        ? '未覆盖'
+        : '${(item.accuracyRate! * 100).round()}%';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFF5B5FEF).withOpacity(0.09),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              accuracy,
+              style: const TextStyle(
+                color: Color(0xFF5B5FEF),
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.chapterName,
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  item.reason,
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 12,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SprintPhaseCard extends StatelessWidget {
+  final int index;
+  final AISprintPhase phase;
+
+  const _SprintPhaseCard({required this.index, required this.phase});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF5B5FEF),
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  '$index',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  phase.name,
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                '第 ${phase.startDay}-${phase.endDay} 天',
+                style: const TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          Text(
+            phase.focus,
+            style: const TextStyle(
+              color: AppTheme.textPrimary,
+              height: 1.4,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: phase.dailyActions
+                .map(
+                  (item) => Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF5B5FEF).withOpacity(0.07),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      item,
+                      style: const TextStyle(
+                        color: Color(0xFF5B5FEF),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+          const SizedBox(height: 9),
+          Text(
+            '阶段验收：${phase.milestone}',
+            style: const TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 12,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SprintBullet extends StatelessWidget {
+  final IconData? icon;
+  final String? leading;
+  final String text;
+  final Color color;
+
+  const _SprintBullet({
+    this.icon,
+    this.leading,
+    required this.text,
+    this.color = AppTheme.primary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: leading != null
+                ? Text(
+                    leading!,
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                    ),
+                  )
+                : Icon(icon ?? Icons.check_rounded, color: color, size: 15),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Text(
+                text,
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  height: 1.4,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── 错题本 ──
 class WrongQuestionTab extends StatefulWidget {
   @override
@@ -1167,11 +2095,17 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
         if (provider.isLoading) {
           return const Center(child: CircularProgressIndicator());
         }
+        final ai = context.watch<AIChatProvider>();
+        final questionProvider = context.watch<QuestionProvider>();
+        final examCategory = questionProvider.examCategory;
+        final errorReport = ai.errorPatternExamCategory == examCategory
+            ? ai.errorPatternReport
+            : null;
         final mastered =
             provider.wrongQuestions.where((w) => w.isMastered).length;
         final total = provider.wrongQuestionTotalCount;
         final loaded = provider.wrongQuestions.length;
-        final chapters = context.watch<QuestionProvider>().chapters;
+        final chapters = questionProvider.chapters;
         final filteredWrongs = provider.wrongQuestions.where((w) {
           if (_wrongStatusFilter == 'pending' && w.isMastered) return false;
           if (_wrongStatusFilter == 'mastered' && !w.isMastered) return false;
@@ -1188,6 +2122,15 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
               child: _WrongReviewPlanCard(
                 plan: provider.wrongReviewPlan,
                 onStart: () => _startWrongPractice(context),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _AIErrorPatternCard(
+                report: errorReport,
+                isLoading: ai.isLoadingErrorPatterns,
+                onGenerate: () => _generateErrorPatterns(context),
+                onStartPattern: (pattern) =>
+                    _startErrorPatternTraining(context, pattern),
               ),
             ),
             SliverToBoxAdapter(
@@ -1375,6 +2318,54 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
           ],
         );
       },
+    );
+  }
+
+  Future<void> _generateErrorPatterns(BuildContext context) async {
+    final examCategory = context.read<QuestionProvider>().examCategory;
+    final ai = context.read<AIChatProvider>();
+    final report = await ai.buildErrorPatternReport(
+      examCategory: examCategory,
+      periodDays: 60,
+    );
+    if (!context.mounted) return;
+    if (report == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ai.error ?? 'AI 错因诊断生成失败，请稍后重试')),
+      );
+      return;
+    }
+    if (report.patterns.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('当前错题样本不足，完成一组练习后再诊断')),
+      );
+    }
+  }
+
+  Future<void> _startErrorPatternTraining(
+    BuildContext context,
+    AIErrorPattern pattern,
+  ) async {
+    final questionProvider = context.read<QuestionProvider>();
+    final hasExactQuestions = pattern.questionIds.isNotEmpty;
+    await questionProvider.loadPracticeQuestions(
+      questionIds: hasExactQuestions ? pattern.questionIds : null,
+      chapterId: hasExactQuestions ? null : pattern.chapterId,
+      mode: hasExactQuestions ? 'wrong' : pattern.mode,
+      tag: hasExactQuestions ? null : pattern.tag,
+      title: 'AI 纠偏 · ${pattern.name}',
+      limit: 10,
+    );
+    if (!context.mounted) return;
+    if (questionProvider.currentQuestions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(questionProvider.error ?? '暂无可用纠偏题目')),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const PracticeScreen()),
     );
   }
 
@@ -1601,6 +2592,7 @@ class _WrongQuestionTabState extends State<WrongQuestionTab> {
                               final result = await context
                                   .read<AIChatProvider>()
                                   .explainWrongQuestion(
+                                    questionId: wrong.questionId,
                                     examCategory: context
                                         .read<QuestionProvider>()
                                         .examCategory,
@@ -1966,6 +2958,344 @@ class _WrongReasonSelector extends StatelessWidget {
                 ),
               );
             }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AIErrorPatternCard extends StatelessWidget {
+  final AIErrorPatternReport? report;
+  final bool isLoading;
+  final VoidCallback onGenerate;
+  final ValueChanged<AIErrorPattern> onStartPattern;
+
+  const _AIErrorPatternCard({
+    required this.report,
+    required this.isLoading,
+    required this.onGenerate,
+    required this.onStartPattern,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final patterns = report?.patterns ?? const <AIErrorPattern>[];
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      padding: const EdgeInsets.all(17),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFFFFF5E8),
+            const Color(0xFFF0EDFF),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF7C5CE7).withOpacity(0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7C5CE7).withOpacity(0.11),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.radar_rounded,
+                  color: Color(0xFF7C5CE7),
+                  size: 23,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'AI 错因雷达',
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      '跨题识别反复失分的真正原因',
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (report != null && report!.totalWrong > 0)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF7C5CE7).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${report!.totalWrong} 题样本',
+                    style: const TextStyle(
+                      color: Color(0xFF7C5CE7),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 13),
+          if (report == null) ...[
+            const Text(
+              'AI 会结合错因标注、答题用时、题目难度和重复复习次数，区分知识漏洞、概念混淆、记忆不牢、审题偏差与时间压力。',
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                height: 1.5,
+                fontSize: 13,
+              ),
+            ),
+          ] else ...[
+            Text(
+              report!.summary,
+              style: const TextStyle(
+                color: AppTheme.textPrimary,
+                height: 1.5,
+                fontSize: 13,
+              ),
+            ),
+            if (patterns.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              ...patterns.take(3).map(
+                    (pattern) => _ErrorPatternTile(
+                      pattern: pattern,
+                      onStart: () => onStartPattern(pattern),
+                    ),
+                  ),
+              if (report!.trainingSequence.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                const Text(
+                  'AI 纠偏顺序',
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                ...report!.trainingSequence.map(
+                  (step) => Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(top: 5),
+                          child: Icon(
+                            Icons.circle,
+                            size: 6,
+                            color: Color(0xFF7C5CE7),
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            step,
+                            style: const TextStyle(
+                              color: AppTheme.textSecondary,
+                              height: 1.4,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ],
+          const SizedBox(height: 13),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: OutlinedButton.icon(
+              onPressed: isLoading ? null : onGenerate,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF7C5CE7),
+                side: const BorderSide(color: Color(0xFF7C5CE7)),
+                backgroundColor: Colors.white.withOpacity(0.72),
+              ),
+              icon: isLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      report == null
+                          ? Icons.auto_awesome_rounded
+                          : Icons.refresh_rounded,
+                      size: 18,
+                    ),
+              label: Text(
+                isLoading
+                    ? 'AI 正在分析错题模式...'
+                    : report == null
+                        ? '生成我的错因诊断'
+                        : '重新分析最新错题',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorPatternTile extends StatelessWidget {
+  final AIErrorPattern pattern;
+  final VoidCallback onStart;
+
+  const _ErrorPatternTile({required this.pattern, required this.onStart});
+
+  Color get _color {
+    switch (pattern.key) {
+      case 'reading_bias':
+        return AppTheme.warning;
+      case 'memory_decay':
+        return const Color(0xFF7C5CE7);
+      case 'time_pressure':
+        return AppTheme.accent;
+      case 'reasoning_chain':
+        return const Color(0xFFEF6C8F);
+      default:
+        return AppTheme.error;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = (pattern.percentage * 100).round();
+    final color = _color;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.82),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: color.withOpacity(0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  pattern.name,
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                '${pattern.count} 题 · $percent%',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${pattern.severity}风险',
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: pattern.percentage.clamp(0.0, 1.0),
+              minHeight: 6,
+              backgroundColor: color.withOpacity(0.08),
+              valueColor: AlwaysStoppedAnimation(color),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            pattern.diagnosis,
+            style: const TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+          if (pattern.evidence.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(
+              '依据：${pattern.evidence.take(2).join('；')}',
+              style: const TextStyle(
+                color: AppTheme.textHint,
+                fontSize: 11,
+                height: 1.35,
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  pattern.correction,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 11,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonalIcon(
+                onPressed: onStart,
+                icon: const Icon(Icons.play_arrow_rounded, size: 17),
+                label: const Text('纠偏'),
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: color,
+                  backgroundColor: color.withOpacity(0.1),
+                ),
+              ),
+            ],
           ),
         ],
       ),

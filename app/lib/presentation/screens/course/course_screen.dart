@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../data/models/conversation.dart';
 import '../../../data/providers/ai_chat_provider.dart';
 import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/question_provider.dart';
 import '../../../data/providers/study_provider.dart';
 import '../../../data/services/api_service.dart';
 import '../../widgets/app_glass.dart';
+import '../ai_chat/ai_chat_screen.dart';
 import '../practice/practice_screen.dart';
 
 class CourseScreen extends StatefulWidget {
@@ -331,6 +333,10 @@ class _CourseDetailScreen extends StatefulWidget {
 class _CourseDetailScreenState extends State<_CourseDetailScreen> {
   String? _loadingMode;
   final Set<int> _completedLessons = {};
+  AITextResult? _aiCourseCoachResult;
+  String _aiCourseCoachStage = 'preview';
+  bool _isLoadingAiCourseCoach = false;
+  bool _isAiCourseCoachCollected = false;
 
   _Course get course => widget.course;
 
@@ -470,6 +476,8 @@ class _CourseDetailScreenState extends State<_CourseDetailScreen> {
               ),
             ),
             const SizedBox(height: 18),
+            _buildAiCourseCoach(context),
+            const SizedBox(height: 18),
             const Text(
               '学习闭环',
               style: TextStyle(
@@ -575,6 +583,298 @@ class _CourseDetailScreenState extends State<_CourseDetailScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildAiCourseCoach(BuildContext context) {
+    final result = _aiCourseCoachResult;
+    final isPreview = _aiCourseCoachStage == 'preview';
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      tint: const Color(0xFF6C5CE7).withOpacity(0.07),
+      borderColor: const Color(0xFF6C5CE7).withOpacity(0.16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6C5CE7).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: Color(0xFF6C5CE7),
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 11),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'AI 课程伴学',
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      '课前带着问题学，课后用练习验证掌握',
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (result?.isDemo == true)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.textHint.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Text(
+                    '演示建议',
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _AiCourseStageButton(
+                  icon: Icons.route_rounded,
+                  label: '生成课前导学',
+                  selected: isPreview,
+                  loading: _isLoadingAiCourseCoach && isPreview,
+                  onTap: _isLoadingAiCourseCoach
+                      ? null
+                      : () => _generateCourseCoach(context, 'preview'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _AiCourseStageButton(
+                  icon: Icons.fact_check_outlined,
+                  label: '生成课后复盘',
+                  selected: !isPreview,
+                  loading: _isLoadingAiCourseCoach && !isPreview,
+                  onTap: _isLoadingAiCourseCoach
+                      ? null
+                      : () => _generateCourseCoach(context, 'review'),
+                ),
+              ),
+            ],
+          ),
+          if (result != null) ...[
+            const SizedBox(height: 14),
+            Text(
+              result.title,
+              style: const TextStyle(
+                color: AppTheme.textPrimary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              result.content,
+              style: const TextStyle(
+                color: AppTheme.textPrimary,
+                height: 1.6,
+                fontSize: 14,
+              ),
+            ),
+            if (result.actions.isNotEmpty) ...[
+              const SizedBox(height: 11),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: result.actions
+                    .map(
+                      (action) => Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.76),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: AppTheme.divider),
+                        ),
+                        child: Text(
+                          action,
+                          style: const TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+            const SizedBox(height: 11),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _openCourseAiChat(context),
+                  icon: const Icon(Icons.forum_outlined, size: 17),
+                  label: const Text('向 AI 追问课程'),
+                ),
+                if (result.assistantMessageId != null)
+                  TextButton.icon(
+                    onPressed: _isAiCourseCoachCollected
+                        ? null
+                        : () => _collectCourseCoach(context, result),
+                    icon: Icon(
+                      _isAiCourseCoachCollected
+                          ? Icons.bookmark_rounded
+                          : Icons.bookmark_border_rounded,
+                      size: 17,
+                    ),
+                    label: Text(
+                      _isAiCourseCoachCollected ? '已加入学习档案' : '加入学习档案',
+                    ),
+                  ),
+                if (result.assistantMessageId != null)
+                  TextButton.icon(
+                    onPressed: () => _generateCourseKnowledgeCard(
+                      context,
+                      result,
+                    ),
+                    icon: const Icon(Icons.add_card_rounded, size: 17),
+                    label: const Text('制成记忆卡'),
+                  ),
+              ],
+            ),
+          ] else ...[
+            const SizedBox(height: 11),
+            Text(
+              course.chapterId == null
+                  ? '课程尚未关联章节，AI 会先根据课程标题和简介生成通用学习方法。'
+                  : '已关联「${course.chapterName}」，AI 会围绕该章节生成可执行的学前和学后任务。',
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12,
+                height: 1.45,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _generateCourseCoach(
+    BuildContext context,
+    String stage,
+  ) async {
+    if (_isLoadingAiCourseCoach) return;
+    setState(() {
+      _aiCourseCoachStage = stage;
+      _isLoadingAiCourseCoach = true;
+      _aiCourseCoachResult = null;
+      _isAiCourseCoachCollected = false;
+    });
+    final ai = context.read<AIChatProvider>();
+    final result = await ai.buildCourseCoach(
+      examCategory: course.examCategory,
+      courseId: course.id,
+      courseTitle: course.title,
+      chapterName: course.chapterId == null ? null : course.chapterName,
+      description: course.description,
+      lessonCount: course.lessonCount,
+      completedLessons: _completedLessons.length,
+      stage: stage,
+    );
+    if (!context.mounted) return;
+    setState(() {
+      _isLoadingAiCourseCoach = false;
+      _aiCourseCoachResult = result;
+    });
+    context.read<StudyProvider>().loadTodayStats(
+          examCategory: course.examCategory,
+        );
+    if (result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ai.error ?? 'AI 课程伴学建议生成失败，请稍后再试')),
+      );
+    }
+  }
+
+  Future<void> _collectCourseCoach(
+    BuildContext context,
+    AITextResult result,
+  ) async {
+    final messageId = result.assistantMessageId;
+    if (messageId == null) return;
+    final collected = await context
+        .read<AIChatProvider>()
+        .collectMessage(messageId, examCategory: course.examCategory);
+    if (!context.mounted || collected == null) return;
+    setState(() => _isAiCourseCoachCollected = collected);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(collected ? '已加入 AI 学习档案' : '已取消收藏')),
+    );
+  }
+
+  Future<void> _generateCourseKnowledgeCard(
+    BuildContext context,
+    AITextResult result,
+  ) async {
+    final messageId = result.assistantMessageId;
+    if (messageId == null) return;
+    final provider = context.read<AIChatProvider>();
+    final card = await provider.generateKnowledgeCard(
+      sourceMessageId: messageId,
+      examCategory: course.examCategory,
+      titleHint: course.chapterId == null ? course.title : course.chapterName,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          card == null
+              ? provider.error ?? 'AI 记忆卡生成失败'
+              : '已生成「${card.title}」，可在 AI 学习档案中复习',
+        ),
+      ),
+    );
+  }
+
+  void _openCourseAiChat(BuildContext context) {
+    final stageName = _aiCourseCoachStage == 'preview' ? '课前导学' : '课后复盘';
+    final prompt = '''请继续作为我的课程学习教练，针对这门课回答问题，并优先给出可以马上执行的学习动作。
+
+考试分类：${course.examCategory}
+课程：${course.title}
+关联章节：${course.chapterId == null ? '暂未关联' : course.chapterName}
+当前阶段：$stageName
+学习进度：${_completedLessons.length}/${course.lessonCount} 讲
+我想继续了解：''';
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AIChatScreen(initialPrompt: prompt),
       ),
     );
   }
@@ -955,6 +1255,82 @@ class _CourseLoopStep extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AiCourseStageButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final bool loading;
+  final VoidCallback? onTap;
+
+  const _AiCourseStageButton({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.loading,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected
+          ? const Color(0xFF6C5CE7).withOpacity(0.12)
+          : Colors.white.withOpacity(0.72),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF6C5CE7).withOpacity(0.34)
+                  : AppTheme.divider,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (loading)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(
+                  icon,
+                  size: 18,
+                  color: selected
+                      ? const Color(0xFF6C5CE7)
+                      : AppTheme.textSecondary,
+                ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  loading ? '生成中...' : label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected
+                        ? const Color(0xFF6C5CE7)
+                        : AppTheme.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

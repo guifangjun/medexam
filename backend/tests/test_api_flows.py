@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from app.core.database import AsyncSessionLocal
 from app.core.init_db import init_database
 from app.main import app
-from app.models.conversation import AIConversation
+from app.models.conversation import AIConversation, AIKnowledgeCard
 from app.models.question import Chapter, ExamAttempt, Question, QuestionRecord
 from app.models.study import DailyTask, StudyPlan, StudyStats, WrongQuestion
 from app.models.user import User
@@ -55,6 +55,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
                 DailyTask,
                 StudyPlan,
                 QuestionRecord,
+                AIKnowledgeCard,
                 AIConversation,
             ):
                 rows = (await db.execute(select(model))).scalars().all()
@@ -143,7 +144,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             headers=self.admin_headers,
         )
         self.assertEqual(good_user.status_code, 200, good_user.text)
-        self.assertEqual(good_user.json()["target_exam"], "执业资格")
+        self.assertEqual(good_user.json()["target_exam"], "临床执业医师")
         bad_user_update = await self.client.put(
             f"/api/admin/users/{good_user.json()['id']}",
             json={"target_exam": "junior"},
@@ -156,7 +157,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         chapters = await self.client.get(
-            "/api/questions/chapters", params={"exam_category": "执业资格"}
+            "/api/questions/chapters", params={"exam_category": "licensed_doctor"}
         )
         chapter_id = chapters.json()[0]["id"]
         bad_course = await self.client.post(
@@ -192,7 +193,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             headers=self.admin_headers,
         )
         self.assertEqual(good_course.status_code, 200, good_course.text)
-        self.assertEqual(good_course.json()["exam_category"], "执业资格")
+        self.assertEqual(good_course.json()["exam_category"], "临床执业医师")
         bad_course_update = await self.client.put(
             f"/api/admin/courses/{good_course.json()['id']}",
             json={"exam_category": "junior"},
@@ -369,7 +370,20 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             headers=self.admin_headers,
         )
         self.assertEqual(created.status_code, 200, created.text)
-        self.assertEqual(created.json()["target_exam"], "执业资格")
+        self.assertEqual(created.json()["target_exam"], "临床执业医师")
+
+        doctor_filtered = await self.client.get(
+            "/api/admin/users",
+            params={"exam_category": "执业医师"},
+            headers=self.admin_headers,
+        )
+        self.assertEqual(doctor_filtered.status_code, 200, doctor_filtered.text)
+        self.assertTrue(
+            any(
+                item["id"] == created.json()["id"]
+                for item in doctor_filtered.json()
+            )
+        )
 
         updated = await self.client.put(
             f"/api/admin/users/{created.json()['id']}",
@@ -377,11 +391,11 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             headers=self.admin_headers,
         )
         self.assertEqual(updated.status_code, 200, updated.text)
-        self.assertEqual(updated.json()["target_exam"], "执业资格")
+        self.assertEqual(updated.json()["target_exam"], "临床助理医师")
 
         filtered = await self.client.get(
             "/api/admin/users",
-            params={"exam_category": "执业医师"},
+            params={"exam_category": "助理医师"},
             headers=self.admin_headers,
         )
         self.assertEqual(filtered.status_code, 200, filtered.text)
@@ -703,7 +717,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(good_register.status_code, 200, good_register.text)
-        self.assertEqual(good_register.json()["target_exam"], "执业资格")
+        self.assertEqual(good_register.json()["target_exam"], "临床执业医师")
 
         register_code_for_login = await self.client.post(
             "/api/auth/sms-code",
@@ -752,7 +766,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             "/api/auth/me", json={"target_exam": "执业医师"}, headers=headers
         )
         self.assertEqual(alias_update.status_code, 200, alias_update.text)
-        self.assertEqual(alias_update.json()["target_exam"], "执业资格")
+        self.assertEqual(alias_update.json()["target_exam"], "临床执业医师")
 
     async def test_sms_code_purpose_matches_account_state(self):
         unregistered_login = await self.client.post(
@@ -1017,7 +1031,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_public_question_endpoints_normalize_category_and_validate_query(self):
         canonical_chapters = await self.client.get(
-            "/api/questions/chapters", params={"exam_category": "执业资格"}
+            "/api/questions/chapters", params={"exam_category": "临床执业医师"}
         )
         alias_chapters = await self.client.get(
             "/api/questions/chapters", params={"exam_category": "执业医师"}
@@ -1081,7 +1095,6 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             params={"exam_category": "junior"},
         )
         self.assertEqual(alias_practice.status_code, 200, alias_practice.text)
-        self.assertTrue(alias_practice.json())
         self.assertEqual(bad_mode.status_code, 400)
         self.assertEqual(bad_limit.status_code, 422)
         self.assertEqual(
@@ -1126,8 +1139,18 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             admin_alias_questions.status_code, 200, admin_alias_questions.text
         )
         self.assertEqual(admin_alias_courses.status_code, 200, admin_alias_courses.text)
-        self.assertTrue(admin_alias_questions.json())
-        self.assertTrue(admin_alias_courses.json())
+        self.assertTrue(
+            all(
+                item["exam_category"] == "临床执业医师"
+                for item in admin_alias_questions.json()
+            )
+        )
+        self.assertTrue(
+            all(
+                item["exam_category"] == "临床执业医师"
+                for item in admin_alias_courses.json()
+            )
+        )
 
     async def test_admin_exam_category_crud_creates_default_chapter(self):
         suffix = datetime.now().strftime("%H%M%S%f")
@@ -1339,7 +1362,11 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         stats = await self.client.get(
             "/api/study/stats/today", headers=self.user_headers
         )
-        wrongs = await self.client.get("/api/study/wrong", headers=self.user_headers)
+        wrongs = await self.client.get(
+            "/api/study/wrong",
+            params={"exam_category": question["exam_category"]},
+            headers=self.user_headers,
+        )
         self.assertEqual(stats.json()["total_questions"], 2)
         self.assertEqual(stats.json()["time_spent"], 34)
         self.assertEqual(len(wrongs.json()), 1)
@@ -1680,9 +1707,9 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(legacy_plan.status_code, 200, legacy_plan.text)
         self.assertEqual(junior_plan.status_code, 200, junior_plan.text)
 
-        licensed_plans = await self.client.get(
+        default_exam_plans = await self.client.get(
             "/api/study/plan",
-            params={"exam_category": "执业资格"},
+            params={"exam_category": "临床执业医师"},
             headers=self.user_headers,
         )
         junior_plans = await self.client.get(
@@ -1691,7 +1718,10 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             headers=self.user_headers,
         )
         self.assertEqual(
-            [(item["title"], item["is_active"]) for item in licensed_plans.json()],
+            [
+                (item["title"], item["is_active"])
+                for item in default_exam_plans.json()
+            ],
             [("旧版无分类计划", True)],
         )
         self.assertEqual(
@@ -2116,9 +2146,13 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             json={"question_id": question["id"], "selected_answer": wrong_answer},
             headers=self.user_headers,
         )
-        wrong = (await self.client.get(
-            "/api/study/wrong", headers=self.user_headers
-        )).json()[0]
+        wrong = (
+            await self.client.get(
+                "/api/study/wrong",
+                params={"exam_category": question["exam_category"]},
+                headers=self.user_headers,
+            )
+        ).json()[0]
         reviewed = await self.client.post(
             f"/api/study/wrong/{wrong['id']}/review",
             params={"is_correct": "true"},
@@ -2144,10 +2178,14 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(submitted.status_code, 200, submitted.text)
 
         calendar = await self.client.get(
-            "/api/study/wrong/calendar", headers=self.user_headers
+            "/api/study/wrong/calendar",
+            params={"exam_category": question["exam_category"]},
+            headers=self.user_headers,
         )
         plan = await self.client.get(
-            "/api/study/wrong/review-plan", headers=self.user_headers
+            "/api/study/wrong/review-plan",
+            params={"exam_category": question["exam_category"]},
+            headers=self.user_headers,
         )
         self.assertEqual(calendar.status_code, 200, calendar.text)
         self.assertEqual(plan.status_code, 200, plan.text)
@@ -2298,6 +2336,746 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(sent.status_code, 200, sent.text)
         self.assertEqual(after.status_code, 200, after.text)
+        self.assertEqual(
+            after.json()["ai_questions"],
+            before.json()["ai_questions"] + 1,
+        )
+
+    async def test_ai_knowledge_cards_generate_review_list_and_delete(self):
+        question_response = await self.client.get(
+            "/api/questions/practice",
+            params={
+                "exam_category": "执业资格",
+                "mode": "random",
+                "limit": 1,
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(question_response.status_code, 200, question_response.text)
+        question = question_response.json()[0]
+        explained = await self.client.post(
+            "/api/ai/wrong-explain",
+            json={
+                "question_id": question["id"],
+                "exam_category": "执业资格",
+                "question_content": question["content"],
+                "question_options": question["options"],
+                "correct_answer": question["answer"],
+                "selected_answer": "Z",
+                "explanation": question.get("explanation"),
+                "tags": question.get("tags", []),
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(explained.status_code, 200, explained.text)
+        assistant_id = explained.json()["assistant_message_id"]
+
+        generated = await self.client.post(
+            "/api/ai/knowledge-cards/generate",
+            json={
+                "source_message_id": assistant_id,
+                "exam_category": "执业资格",
+                "title_hint": "基础医学",
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(generated.status_code, 200, generated.text)
+        card = generated.json()
+        self.assertEqual(card["source_message_id"], assistant_id)
+        self.assertEqual(card["related_question_id"], question["id"])
+        self.assertEqual(card["exam_category"], "执业资格")
+        self.assertTrue(card["front"])
+        self.assertTrue(card["back"])
+        self.assertIsNotNone(card["next_review_at"])
+
+        generated_again = await self.client.post(
+            "/api/ai/knowledge-cards/generate",
+            json={"source_message_id": assistant_id},
+            headers=self.user_headers,
+        )
+        self.assertEqual(generated_again.status_code, 200, generated_again.text)
+        self.assertEqual(generated_again.json()["id"], card["id"])
+
+        due_cards = await self.client.get(
+            "/api/ai/knowledge-cards",
+            params={"exam_category": "执业资格", "due_only": True},
+            headers=self.user_headers,
+        )
+        self.assertEqual(due_cards.status_code, 200, due_cards.text)
+        self.assertEqual([item["id"] for item in due_cards.json()], [card["id"]])
+
+        reviewed = await self.client.post(
+            f"/api/ai/knowledge-cards/{card['id']}/review",
+            json={"rating": "easy"},
+            headers=self.user_headers,
+        )
+        self.assertEqual(reviewed.status_code, 200, reviewed.text)
+        self.assertEqual(reviewed.json()["review_count"], 1)
+        self.assertEqual(reviewed.json()["mastery_level"], 2)
+        self.assertGreater(
+            datetime.fromisoformat(reviewed.json()["next_review_at"]),
+            datetime.fromisoformat(card["next_review_at"]),
+        )
+
+        no_longer_due = await self.client.get(
+            "/api/ai/knowledge-cards",
+            params={"exam_category": "执业资格", "due_only": True},
+            headers=self.user_headers,
+        )
+        self.assertEqual(no_longer_due.json(), [])
+
+        deleted = await self.client.delete(
+            f"/api/ai/knowledge-cards/{card['id']}",
+            headers=self.user_headers,
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        cards_after_delete = await self.client.get(
+            "/api/ai/knowledge-cards",
+            headers=self.user_headers,
+        )
+        self.assertEqual(cards_after_delete.json(), [])
+
+    async def test_ai_weakness_insights_track_history_and_link_chapter(self):
+        questions = await self.client.get(
+            "/api/questions/practice",
+            params={
+                "exam_category": "执业资格",
+                "mode": "random",
+                "limit": 2,
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(questions.status_code, 200, questions.text)
+        self.assertTrue(questions.json())
+        for question in questions.json():
+            submitted = await self.client.post(
+                "/api/questions/submit",
+                json={
+                    "question_id": question["id"],
+                    "selected_answer": "Z",
+                    "time_spent": 25,
+                },
+                headers=self.user_headers,
+            )
+            self.assertEqual(submitted.status_code, 200, submitted.text)
+
+        report = await self.client.post(
+            "/api/ai/weakness-insights",
+            json={"exam_category": "执业资格", "period_days": 30},
+            headers=self.user_headers,
+        )
+        self.assertEqual(report.status_code, 200, report.text)
+        body = report.json()
+        self.assertEqual(body["title"], "AI 长期薄弱点追踪")
+        self.assertGreaterEqual(body["total_records"], 1)
+        self.assertTrue(body["summary"])
+        self.assertTrue(body["items"])
+        first = body["items"][0]
+        self.assertIsInstance(first["chapter_id"], int)
+        self.assertTrue(first["chapter_name"])
+        self.assertGreaterEqual(first["recent_questions"], 1)
+        self.assertEqual(first["trend"], "数据积累中")
+        self.assertTrue(first["recommendation"])
+        self.assertEqual(body["session_id"], "weakness-insights-执业资格")
+
+        empty = await self.client.post(
+            "/api/ai/weakness-insights",
+            json={"exam_category": "初级职称", "period_days": 30},
+            headers=self.user_headers,
+        )
+        self.assertEqual(empty.status_code, 200, empty.text)
+        self.assertEqual(empty.json()["items"], [])
+        self.assertEqual(empty.json()["total_records"], 0)
+
+    async def test_ai_sprint_plan_uses_exam_date_history_and_can_be_applied(self):
+        unauthorized = await self.client.post(
+            "/api/ai/sprint-plan",
+            json={
+                "exam_category": "执业资格",
+                "exam_date": (datetime.now() + timedelta(days=40)).isoformat(),
+                "daily_minutes": 60,
+                "intensity": "steady",
+            },
+        )
+        self.assertEqual(unauthorized.status_code, 401, unauthorized.text)
+
+        past = await self.client.post(
+            "/api/ai/sprint-plan",
+            json={
+                "exam_category": "执业资格",
+                "exam_date": (datetime.now() - timedelta(days=1)).isoformat(),
+                "daily_minutes": 60,
+                "intensity": "steady",
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(past.status_code, 400, past.text)
+
+        questions = await self.client.get(
+            "/api/questions/practice",
+            params={
+                "exam_category": "执业资格",
+                "mode": "random",
+                "limit": 2,
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(questions.status_code, 200, questions.text)
+        self.assertGreaterEqual(len(questions.json()), 2)
+        for index, question in enumerate(questions.json()[:2]):
+            answer = question["answer"] if index == 0 else "Z"
+            submitted = await self.client.post(
+                "/api/questions/submit",
+                json={
+                    "question_id": question["id"],
+                    "selected_answer": answer,
+                    "time_spent": 30,
+                },
+                headers=self.user_headers,
+            )
+            self.assertEqual(submitted.status_code, 200, submitted.text)
+
+        exam_date = datetime.now() + timedelta(days=40)
+        before = await self.client.get(
+            "/api/study/stats/today", headers=self.user_headers
+        )
+        generated = await self.client.post(
+            "/api/ai/sprint-plan",
+            json={
+                "exam_category": "执业资格",
+                "exam_date": exam_date.isoformat(),
+                "daily_minutes": 80,
+                "intensity": "accelerated",
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(generated.status_code, 200, generated.text)
+        plan = generated.json()
+        self.assertEqual(plan["exam_category"], "执业资格")
+        self.assertGreaterEqual(plan["days_remaining"], 40)
+        self.assertEqual(plan["daily_minutes"], 80)
+        self.assertGreater(plan["daily_questions"], 20)
+        self.assertEqual(plan["weekly_mock_exams"], 1)
+        self.assertEqual(plan["intensity"], "accelerated")
+        self.assertGreaterEqual(len(plan["phases"]), 2)
+        self.assertTrue(plan["priority_chapters"])
+        self.assertEqual(plan["phases"][0]["start_day"], 1)
+        self.assertEqual(plan["phases"][-1]["end_day"], plan["days_remaining"])
+        self.assertEqual(len(plan["daily_schedule"]), 4)
+        self.assertEqual(len(plan["today_actions"]), 3)
+        self.assertEqual(plan["session_id"], "sprint-plan-执业资格")
+
+        saved_goal = await self.client.put(
+            "/api/auth/me",
+            json={
+                "target_date": plan["exam_date"],
+                "daily_goal": plan["daily_questions"],
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(saved_goal.status_code, 200, saved_goal.text)
+        self.assertEqual(saved_goal.json()["daily_goal"], plan["daily_questions"])
+
+        applied = await self.client.post(
+            "/api/study/plan",
+            json={
+                "title": f"AI {plan['days_remaining']} 天冲刺计划",
+                "plan_type": "daily",
+                "exam_category": plan["exam_category"],
+                "target_chapters": [
+                    item["chapter_id"] for item in plan["priority_chapters"]
+                ],
+                "daily_questions": plan["daily_questions"],
+                "start_date": datetime.now().isoformat(),
+                "end_date": plan["exam_date"],
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(applied.status_code, 200, applied.text)
+        self.assertTrue(applied.json()["is_active"])
+        self.assertEqual(
+            applied.json()["target_chapters"],
+            [item["chapter_id"] for item in plan["priority_chapters"]],
+        )
+
+        after = await self.client.get(
+            "/api/study/stats/today", headers=self.user_headers
+        )
+        self.assertEqual(
+            after.json()["ai_questions"],
+            before.json()["ai_questions"] + 1,
+        )
+
+    async def test_ai_error_patterns_diagnose_causes_and_open_exact_training(self):
+        unauthorized = await self.client.post(
+            "/api/ai/error-patterns",
+            json={"exam_category": "执业资格", "period_days": 60},
+        )
+        self.assertEqual(unauthorized.status_code, 401, unauthorized.text)
+        invalid = await self.client.post(
+            "/api/ai/error-patterns",
+            json={"exam_category": "not-a-category", "period_days": 60},
+            headers=self.user_headers,
+        )
+        self.assertEqual(invalid.status_code, 400, invalid.text)
+
+        questions = await self.client.get(
+            "/api/questions/practice",
+            params={
+                "exam_category": "执业资格",
+                "mode": "random",
+                "limit": 3,
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(questions.status_code, 200, questions.text)
+        self.assertGreaterEqual(len(questions.json()), 3)
+        time_spent = [6, 35, 150]
+        reasons = ["粗心", "记忆模糊", "概念混淆"]
+        for question, seconds in zip(questions.json()[:3], time_spent):
+            submitted = await self.client.post(
+                "/api/questions/submit",
+                json={
+                    "question_id": question["id"],
+                    "selected_answer": "Z",
+                    "time_spent": seconds,
+                },
+                headers=self.user_headers,
+            )
+            self.assertEqual(submitted.status_code, 200, submitted.text)
+
+        wrongs = await self.client.get(
+            "/api/study/wrong",
+            params={"exam_category": "执业资格", "limit": 20},
+            headers=self.user_headers,
+        )
+        self.assertEqual(wrongs.status_code, 200, wrongs.text)
+        by_question = {item["question_id"]: item for item in wrongs.json()}
+        for question, reason in zip(questions.json()[:3], reasons):
+            updated = await self.client.put(
+                f"/api/study/wrong/{by_question[question['id']]['id']}/reason",
+                json={"wrong_reason": reason},
+                headers=self.user_headers,
+            )
+            self.assertEqual(updated.status_code, 200, updated.text)
+
+        before = await self.client.get(
+            "/api/study/stats/today", headers=self.user_headers
+        )
+        diagnosed = await self.client.post(
+            "/api/ai/error-patterns",
+            json={"exam_category": "执业资格", "period_days": 60},
+            headers=self.user_headers,
+        )
+        self.assertEqual(diagnosed.status_code, 200, diagnosed.text)
+        report = diagnosed.json()
+        self.assertEqual(report["title"], "AI 错因雷达")
+        self.assertEqual(report["total_wrong"], 3)
+        self.assertEqual(report["analyzed_records"], 3)
+        self.assertEqual(report["session_id"], "error-patterns-执业资格")
+        self.assertTrue(report["summary"])
+        self.assertEqual(len(report["training_sequence"]), 3)
+        patterns = {item["key"]: item for item in report["patterns"]}
+        self.assertIn("reading_bias", patterns)
+        self.assertIn("memory_decay", patterns)
+        self.assertIn("concept_confusion", patterns)
+        self.assertEqual(sum(item["count"] for item in patterns.values()), 3)
+        self.assertAlmostEqual(
+            sum(item["percentage"] for item in patterns.values()), 1.0
+        )
+        for item in patterns.values():
+            self.assertTrue(item["diagnosis"])
+            self.assertTrue(item["correction"])
+            self.assertTrue(item["evidence"])
+            self.assertTrue(item["question_ids"])
+
+        first = report["patterns"][0]
+        exact_training = await self.client.get(
+            "/api/questions/practice",
+            params={
+                "exam_category": "执业资格",
+                "mode": "wrong",
+                "question_ids": ",".join(
+                    str(question_id) for question_id in first["question_ids"]
+                ),
+                "limit": 10,
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(exact_training.status_code, 200, exact_training.text)
+        self.assertEqual(
+            {item["id"] for item in exact_training.json()},
+            set(first["question_ids"]),
+        )
+        after = await self.client.get(
+            "/api/study/stats/today", headers=self.user_headers
+        )
+        self.assertEqual(
+            after.json()["ai_questions"],
+            before.json()["ai_questions"] + 1,
+        )
+
+    async def test_ai_question_and_course_coaches_cover_learning_moments(self):
+        correct_question = await self.client.post(
+            "/api/ai/wrong-explain",
+            json={
+                "exam_category": "执业资格",
+                "question_content": "正常成人心率范围是？",
+                "question_options": {"A": "60-100次/分", "B": "120-160次/分"},
+                "correct_answer": "A",
+                "selected_answer": "A",
+                "explanation": "正常成人安静状态下心率通常为60-100次/分。",
+                "tags": ["生理学", "心率"],
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(correct_question.status_code, 200, correct_question.text)
+        self.assertEqual(correct_question.json()["title"], "AI 题目教练")
+
+        unauthorized = await self.client.post(
+            "/api/ai/course-coach",
+            json={
+                "exam_category": "执业资格",
+                "course_title": "考点精讲课",
+                "stage": "preview",
+            },
+        )
+        self.assertEqual(unauthorized.status_code, 401, unauthorized.text)
+
+        preview = await self.client.post(
+            "/api/ai/course-coach",
+            json={
+                "exam_category": "执业资格",
+                "course_id": 7,
+                "course_title": "考点精讲课",
+                "chapter_name": "基础医学",
+                "description": "围绕基础医学核心考点进行讲解",
+                "lesson_count": 10,
+                "completed_lessons": 0,
+                "stage": "preview",
+            },
+            headers=self.user_headers,
+        )
+        review = await self.client.post(
+            "/api/ai/course-coach",
+            json={
+                "exam_category": "执业资格",
+                "course_id": 7,
+                "course_title": "考点精讲课",
+                "chapter_name": "基础医学",
+                "lesson_count": 10,
+                "completed_lessons": 3,
+                "stage": "review",
+            },
+            headers=self.user_headers,
+        )
+        for response, expected_title, expected_stage in (
+            (preview, "AI 课前导学", "preview"),
+            (review, "AI 课后复盘", "review"),
+        ):
+            self.assertEqual(response.status_code, 200, response.text)
+            body = response.json()
+            self.assertEqual(body["title"], expected_title)
+            self.assertTrue(body["content"])
+            self.assertEqual(len(body["actions"]), 3)
+
+            self.assertEqual(body["session_id"], f"course-coach-7-{expected_stage}")
+            self.assertIsNotNone(body["assistant_message_id"])
+
+        invalid_stage = await self.client.post(
+            "/api/ai/course-coach",
+            json={
+                "exam_category": "执业资格",
+                "course_title": "考点精讲课",
+                "stage": "during",
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(invalid_stage.status_code, 400, invalid_stage.text)
+
+        empty_review = await self.client.post(
+            "/api/ai/practice-review",
+            json={
+                "exam_category": "执业资格",
+                "practice_title": "基础医学章节练习",
+                "answered_count": 0,
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(empty_review.status_code, 400, empty_review.text)
+
+        practice_review = await self.client.post(
+            "/api/ai/practice-review",
+            json={
+                "exam_category": "执业资格",
+                "practice_title": "基础医学章节练习",
+                "total_questions": 10,
+                "answered_count": 10,
+                "correct_count": 7,
+                "wrong_count": 3,
+                "time_spent": 420,
+                "wrong_tags": {"生理学": 2, "病理学": 1},
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(practice_review.status_code, 200, practice_review.text)
+        review_body = practice_review.json()
+        self.assertEqual(review_body["title"], "AI 练习小结")
+        self.assertEqual(review_body["session_id"], "practice-review-执业资格")
+        self.assertTrue(review_body["content"])
+        self.assertEqual(len(review_body["actions"]), 3)
+
+    async def test_ai_reasoning_evaluation_turns_recall_into_feedback(self):
+        questions = await self.client.get(
+            "/api/questions/practice",
+            params={"exam_category": "执业资格", "limit": 1},
+            headers=self.user_headers,
+        )
+        self.assertEqual(questions.status_code, 200, questions.text)
+        question = questions.json()[0]
+
+        unauthorized = await self.client.post(
+            "/api/ai/reasoning-evaluate",
+            json={
+                "exam_category": "执业资格",
+                "question_content": question["content"],
+                "learner_reasoning": "我先定位题干关键词，再判断选项边界。",
+            },
+        )
+        self.assertEqual(unauthorized.status_code, 401, unauthorized.text)
+        invalid_category = await self.client.post(
+            "/api/ai/reasoning-evaluate",
+            json={
+                "exam_category": "not-a-category",
+                "question_content": question["content"],
+                "learner_reasoning": "我先定位题干关键词，再判断选项边界。",
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(invalid_category.status_code, 400, invalid_category.text)
+
+        before = await self.client.get(
+            "/api/study/stats/today", headers=self.user_headers
+        )
+        evaluated = await self.client.post(
+            "/api/ai/reasoning-evaluate",
+            json={
+                "question_id": question["id"],
+                "exam_category": "执业资格",
+                "question_content": question["content"],
+                "correct_answer": question["answer"],
+                "selected_answer": question["answer"],
+                "reference_explanation": question.get("explanation"),
+                "learner_reasoning": (
+                    "我先找题干里的关键条件，再把它和正确选项的适用范围对应，"
+                    "最后逐个排除与这些条件不一致的干扰项。"
+                ),
+                "is_correct": True,
+                "tags": question.get("tags", []),
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(evaluated.status_code, 200, evaluated.text)
+        body = evaluated.json()
+        self.assertEqual(body["title"], "AI 费曼复述评测")
+        self.assertGreaterEqual(body["score"], 0)
+        self.assertLessEqual(body["score"], 100)
+        self.assertTrue(body["verdict"])
+        self.assertTrue(body["strengths"])
+        self.assertTrue(body["gaps"])
+        self.assertTrue(body["coaching_questions"])
+        self.assertTrue(body["model_reasoning"])
+        self.assertTrue(body["next_action"])
+        self.assertTrue(body["session_id"])
+        self.assertIsNotNone(body["assistant_message_id"])
+
+        history = await self.client.get(
+            "/api/ai/history",
+            params={"session_id": body["session_id"]},
+            headers=self.user_headers,
+        )
+        self.assertEqual(history.status_code, 200, history.text)
+        assistant = next(
+            item for item in history.json() if item["message_type"] == "assistant"
+        )
+        self.assertEqual(assistant["related_question_id"], question["id"])
+        after = await self.client.get(
+            "/api/study/stats/today", headers=self.user_headers
+        )
+        self.assertEqual(
+            after.json()["ai_questions"],
+            before.json()["ai_questions"] + 1,
+        )
+
+    async def test_ai_adaptive_practice_recalculates_after_each_round(self):
+        unauthorized = await self.client.post(
+            "/api/ai/adaptive-practice",
+            json={"exam_category": "执业资格", "limit": 5},
+        )
+        self.assertEqual(unauthorized.status_code, 401, unauthorized.text)
+        invalid_category = await self.client.post(
+            "/api/ai/adaptive-practice",
+            json={"exam_category": "not-a-category", "limit": 5},
+            headers=self.user_headers,
+        )
+        self.assertEqual(invalid_category.status_code, 400, invalid_category.text)
+
+        before = await self.client.get(
+            "/api/study/stats/today", headers=self.user_headers
+        )
+        first_round = await self.client.post(
+            "/api/ai/adaptive-practice",
+            json={"exam_category": "执业资格", "limit": 5},
+            headers=self.user_headers,
+        )
+        self.assertEqual(first_round.status_code, 200, first_round.text)
+        first_plan = first_round.json()
+        self.assertTrue(first_plan["title"].startswith("AI 自适应训练"))
+        self.assertEqual(first_plan["target_difficulty"], 2)
+        self.assertEqual(first_plan["question_count"], 5)
+        self.assertEqual(len(first_plan["questions"]), 5)
+        self.assertEqual(
+            sum(first_plan["selection_breakdown"].values()),
+            first_plan["question_count"],
+        )
+        self.assertTrue(first_plan["strategy"])
+        self.assertTrue(first_plan["reasons"])
+        self.assertTrue(first_plan["next_adjustment_hint"])
+        self.assertIsNotNone(first_plan["assistant_message_id"])
+
+        for question in first_plan["questions"]:
+            submitted = await self.client.post(
+                "/api/questions/submit",
+                json={
+                    "question_id": question["id"],
+                    "selected_answer": question["answer"],
+                    "time_spent": 30,
+                },
+                headers=self.user_headers,
+            )
+            self.assertEqual(submitted.status_code, 200, submitted.text)
+            self.assertTrue(submitted.json()["is_correct"])
+
+        first_ids = [item["id"] for item in first_plan["questions"]]
+        second_round = await self.client.post(
+            "/api/ai/adaptive-practice",
+            json={
+                "exam_category": "执业资格",
+                "limit": 5,
+                "exclude_question_ids": first_ids,
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(second_round.status_code, 200, second_round.text)
+        second_plan = second_round.json()
+        self.assertEqual(second_plan["target_difficulty"], 5)
+        self.assertEqual(second_plan["question_count"], 5)
+        second_ids = [item["id"] for item in second_plan["questions"]]
+        self.assertTrue(set(first_ids).isdisjoint(second_ids))
+        self.assertIn("5/5", second_plan["reasons"][0])
+
+        after = await self.client.get(
+            "/api/study/stats/today", headers=self.user_headers
+        )
+        self.assertEqual(
+            after.json()["ai_questions"],
+            before.json()["ai_questions"] + 2,
+        )
+
+    async def test_ai_case_simulation_generates_three_stage_learning_loop(self):
+        unauthorized = await self.client.post(
+            "/api/ai/case-simulation/generate",
+            json={"exam_category": "执业资格", "difficulty": 2},
+        )
+        self.assertEqual(unauthorized.status_code, 401, unauthorized.text)
+        invalid_category = await self.client.post(
+            "/api/ai/case-simulation/generate",
+            json={"exam_category": "not-a-category", "difficulty": 2},
+            headers=self.user_headers,
+        )
+        self.assertEqual(invalid_category.status_code, 400, invalid_category.text)
+
+        generated = await self.client.post(
+            "/api/ai/case-simulation/generate",
+            json={
+                "exam_category": "执业资格",
+                "topic": "不存在的测试主题也应回退题库",
+                "difficulty": 2,
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(generated.status_code, 200, generated.text)
+        simulation = generated.json()
+        self.assertTrue(simulation["case_id"].startswith("case-"))
+        self.assertEqual(simulation["exam_category"], "执业资格")
+        self.assertEqual(simulation["difficulty"], 2)
+        self.assertEqual(len(simulation["stages"]), 3)
+        self.assertTrue(simulation["learning_objectives"])
+        for index, stage in enumerate(simulation["stages"]):
+            self.assertEqual(stage["index"], index)
+            self.assertGreaterEqual(len(stage["options"]), 2)
+            self.assertIn(stage["best_answer"], stage["options"])
+            self.assertTrue(stage["scenario"])
+            self.assertTrue(stage["explanation"])
+            self.assertTrue(stage["hint"])
+            self.assertTrue(stage["knowledge_point"])
+            self.assertIsInstance(stage["source_question_id"], int)
+
+        before = await self.client.get(
+            "/api/study/stats/today", headers=self.user_headers
+        )
+        answer_items = []
+        for index, stage in enumerate(simulation["stages"]):
+            selected = stage["best_answer"]
+            if index == 0:
+                selected = next(
+                    key for key in stage["options"] if key != stage["best_answer"]
+                )
+            answer_items.append(
+                {
+                    "stage_index": stage["index"],
+                    "stage_title": stage["title"],
+                    "selected_answer": selected,
+                    "best_answer": stage["best_answer"],
+                    "knowledge_point": stage["knowledge_point"],
+                }
+            )
+        reviewed = await self.client.post(
+            "/api/ai/case-simulation/review",
+            json={
+                "case_id": simulation["case_id"],
+                "exam_category": simulation["exam_category"],
+                "case_title": simulation["title"],
+                "topic": simulation["topic"],
+                "answers": answer_items,
+            },
+            headers=self.user_headers,
+        )
+        self.assertEqual(reviewed.status_code, 200, reviewed.text)
+        report = reviewed.json()
+        self.assertEqual(report["title"], "AI 病例推演复盘")
+        self.assertEqual(report["correct_count"], 2)
+        self.assertEqual(report["total_stages"], 3)
+        self.assertEqual(report["score"], 67)
+        self.assertEqual(
+            report["wrong_points"],
+            [simulation["stages"][0]["knowledge_point"]],
+        )
+        self.assertTrue(report["summary"])
+        self.assertEqual(len(report["actions"]), 3)
+        self.assertTrue(report["session_id"].startswith("case-review-"))
+        self.assertIsNotNone(report["assistant_message_id"])
+
+        history = await self.client.get(
+            "/api/ai/history",
+            params={"session_id": report["session_id"]},
+            headers=self.user_headers,
+        )
+        self.assertEqual(history.status_code, 200, history.text)
+        self.assertEqual(len(history.json()), 2)
+        after = await self.client.get(
+            "/api/study/stats/today", headers=self.user_headers
+        )
         self.assertEqual(
             after.json()["ai_questions"],
             before.json()["ai_questions"] + 1,
@@ -2591,7 +3369,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             headers=self.user_headers,
         )
         self.assertEqual(alias.status_code, 200, alias.text)
-        self.assertEqual(alias.json()["session_id"], "study-advice-执业资格")
+        self.assertEqual(alias.json()["session_id"], "study-advice-临床执业医师")
 
         res = await self.client.post(
             "/api/ai/study-advice",
@@ -2651,7 +3429,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             headers=self.user_headers,
         )
         self.assertEqual(alias.status_code, 200, alias.text)
-        self.assertEqual(alias.json()["session_id"], "exam-report-执业资格")
+        self.assertEqual(alias.json()["session_id"], "exam-report-临床助理医师")
 
     async def test_exam_attempt_history_and_report_detail(self):
         questions = await self.client.get(
@@ -2965,6 +3743,9 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         licensed_alias = await self.client.get(
             "/api/questions/exam", params={"exam_category": "licensed_doctor"}
         )
+        licensed_canonical = await self.client.get(
+            "/api/questions/exam", params={"exam_category": "临床执业医师"}
+        )
         chapters = await self.client.get(
             "/api/questions/chapters", params={"exam_category": "junior"}
         )
@@ -2975,9 +3756,15 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             "/api/questions/exam", params={"exam_category": "junior"}
         )
         self.assertEqual(licensed_alias.status_code, 200, licensed_alias.text)
-        self.assertTrue(licensed_alias.json())
+        self.assertEqual(
+            licensed_canonical.status_code, 200, licensed_canonical.text
+        )
+        self.assertEqual(licensed_alias.json(), licensed_canonical.json())
         self.assertTrue(
-            all(item["exam_category"] == "执业资格" for item in licensed_alias.json())
+            all(
+                item["exam_category"] == "临床执业医师"
+                for item in licensed_alias.json()
+            )
         )
         self.assertEqual(chapters.status_code, 200, chapters.text)
         self.assertEqual(practice.status_code, 200, practice.text)

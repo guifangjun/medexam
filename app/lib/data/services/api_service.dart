@@ -444,6 +444,119 @@ class ApiService {
     return _dio.post('${ApiConstants.ai}/wrong-explain', data: data);
   }
 
+  Future<Response> getAICourseCoach(Map<String, dynamic> data) async {
+    return _dio.post('${ApiConstants.ai}/course-coach', data: data);
+  }
+
+  Future<Response> getAIPracticeReview(Map<String, dynamic> data) async {
+    return _dio.post('${ApiConstants.ai}/practice-review', data: data);
+  }
+
+  Future<Response> evaluateAIReasoning(Map<String, dynamic> data) async {
+    return _dio.post('${ApiConstants.ai}/reasoning-evaluate', data: data);
+  }
+
+  Future<Response> generateAICaseSimulation({
+    required String examCategory,
+    String? topic,
+    int difficulty = 2,
+    int? chapterId,
+  }) async {
+    return _dio.post('${ApiConstants.ai}/case-simulation/generate', data: {
+      'exam_category': examCategory,
+      if (topic != null && topic.trim().isNotEmpty) 'topic': topic.trim(),
+      'difficulty': difficulty,
+      if (chapterId != null) 'chapter_id': chapterId,
+    });
+  }
+
+  Future<Response> reviewAICaseSimulation(Map<String, dynamic> data) async {
+    return _dio.post('${ApiConstants.ai}/case-simulation/review', data: data);
+  }
+
+  Future<Response> getAIAdaptivePractice({
+    required String examCategory,
+    int limit = 10,
+    int? chapterId,
+    List<int> excludeQuestionIds = const [],
+  }) async {
+    return _dio.post('${ApiConstants.ai}/adaptive-practice', data: {
+      'exam_category': examCategory,
+      'limit': limit,
+      if (chapterId != null) 'chapter_id': chapterId,
+      'exclude_question_ids': excludeQuestionIds,
+    });
+  }
+
+  Future<Response> generateAIKnowledgeCard({
+    required int sourceMessageId,
+    String? examCategory,
+    String? titleHint,
+  }) async {
+    return _dio.post('${ApiConstants.ai}/knowledge-cards/generate', data: {
+      'source_message_id': sourceMessageId,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+      if (titleHint != null && titleHint.isNotEmpty) 'title_hint': titleHint,
+    });
+  }
+
+  Future<Response> getAIKnowledgeCards({
+    String? examCategory,
+    bool dueOnly = false,
+  }) async {
+    return _dio.get('${ApiConstants.ai}/knowledge-cards', queryParameters: {
+      'due_only': dueOnly,
+      if (examCategory != null && examCategory.isNotEmpty)
+        'exam_category': examCategory,
+    });
+  }
+
+  Future<Response> reviewAIKnowledgeCard(int cardId, String rating) async {
+    return _dio.post(
+      '${ApiConstants.ai}/knowledge-cards/$cardId/review',
+      data: {'rating': rating},
+    );
+  }
+
+  Future<Response> deleteAIKnowledgeCard(int cardId) async {
+    return _dio.delete('${ApiConstants.ai}/knowledge-cards/$cardId');
+  }
+
+  Future<Response> getAIWeaknessInsights({
+    required String examCategory,
+    int periodDays = 30,
+  }) async {
+    return _dio.post('${ApiConstants.ai}/weakness-insights', data: {
+      'exam_category': examCategory,
+      'period_days': periodDays,
+    });
+  }
+
+  Future<Response> getAIErrorPatterns({
+    required String examCategory,
+    int periodDays = 60,
+  }) async {
+    return _dio.post('${ApiConstants.ai}/error-patterns', data: {
+      'exam_category': examCategory,
+      'period_days': periodDays,
+    });
+  }
+
+  Future<Response> getAISprintPlan({
+    required String examCategory,
+    required DateTime examDate,
+    required int dailyMinutes,
+    required String intensity,
+  }) async {
+    return _dio.post('${ApiConstants.ai}/sprint-plan', data: {
+      'exam_category': examCategory,
+      'exam_date': examDate.toIso8601String(),
+      'daily_minutes': dailyMinutes,
+      'intensity': intensity,
+    });
+  }
+
   Future<Response> getAIExamReport(Map<String, dynamic> data) async {
     return _dio.post('${ApiConstants.ai}/exam-report', data: data);
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/conversation.dart';
 import '../models/question.dart';
 import '../models/chapter.dart';
 import '../services/api_service.dart';
@@ -22,12 +23,15 @@ class QuestionProvider extends ChangeNotifier {
   int _recentStudyIndex = 0;
   List<Chapter> _chapters = [];
   List<Question> _currentQuestions = [];
+  final Map<int, SubmitResult> _practiceResults = {};
+  final Map<int, int> _practiceTimeSpent = {};
   int _currentIndex = 0;
   Question? _currentQuestion;
   SubmitResult? _lastResult;
   ExamResult? _examResult;
   List<ExamAttemptSummary> _examAttempts = [];
   int? _examAvailableCount;
+  AIAdaptivePracticePlan? _adaptivePlan;
   final Map<int, String> _examAnswers = {};
   bool _isLoading = false;
   String? _error;
@@ -39,6 +43,7 @@ class QuestionProvider extends ChangeNotifier {
     _useMockData = enabled;
     _chapters = [];
     _currentQuestions = [];
+    _clearPracticeSessionResults();
     _currentIndex = 0;
     _currentQuestion = null;
     _lastResult = null;
@@ -46,6 +51,7 @@ class QuestionProvider extends ChangeNotifier {
     _examAnswers.clear();
     _examAttempts = [];
     _examAvailableCount = null;
+    _adaptivePlan = null;
     _practiceAttempted = false;
     _error = null;
     notifyListeners();
@@ -75,6 +81,7 @@ class QuestionProvider extends ChangeNotifier {
   ExamResult? get examResult => _examResult;
   List<ExamAttemptSummary> get examAttempts => _examAttempts;
   int? get examAvailableCount => _examAvailableCount;
+  AIAdaptivePracticePlan? get adaptivePlan => _adaptivePlan;
   Map<int, String> get examAnswers => Map.unmodifiable(_examAnswers);
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -84,6 +91,42 @@ class QuestionProvider extends ChangeNotifier {
   bool get hasExamQuestions =>
       _currentQuestions.isNotEmpty && _practiceMode == 'exam';
   bool get isLastQuestion => _currentIndex >= _currentQuestions.length - 1;
+  int get practiceAnsweredCount => _practiceResults.length;
+  int get practiceCorrectCount =>
+      _practiceResults.values.where((result) => result.isCorrect).length;
+  int get practiceWrongCount => practiceAnsweredCount - practiceCorrectCount;
+  int get practiceTotalTime =>
+      _practiceTimeSpent.values.fold(0, (sum, seconds) => sum + seconds);
+  double get practiceAccuracyRate => practiceAnsweredCount == 0
+      ? 0
+      : practiceCorrectCount / practiceAnsweredCount;
+  List<int> get practiceWrongQuestionIds => _practiceResults.entries
+      .where((entry) => !entry.value.isCorrect)
+      .map((entry) => entry.key)
+      .toList();
+  Map<String, int> get practiceWrongTagCounts {
+    final counts = <String, int>{};
+    final wrongIds = practiceWrongQuestionIds.toSet();
+    const genericTags = {
+      '执业资格',
+      '执业医师',
+      '助理医师',
+      '初级职称',
+      '中级职称',
+      '高级职称',
+    };
+    for (final question in _currentQuestions) {
+      if (!wrongIds.contains(question.id)) continue;
+      for (final tag in question.tags.where(
+        (tag) => tag.trim().isNotEmpty && !genericTags.contains(tag),
+      )) {
+        counts[tag] = (counts[tag] ?? 0) + 1;
+      }
+    }
+    final entries = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return Map.fromEntries(entries);
+  }
 
   double get progress {
     if (_currentQuestions.isEmpty) return 0;
@@ -355,6 +398,7 @@ class QuestionProvider extends ChangeNotifier {
       _examCategory = category;
       _chapters = [];
       _currentQuestions = [];
+      _clearPracticeSessionResults();
       _currentIndex = 0;
       _currentQuestion = null;
       _lastResult = null;
@@ -362,6 +406,7 @@ class QuestionProvider extends ChangeNotifier {
       _examAnswers.clear();
       _examAttempts = [];
       _examAvailableCount = null;
+      _adaptivePlan = null;
       _practiceMode = 'chapter';
       _practiceTitle = null;
       _practiceChapterId = null;
@@ -423,6 +468,7 @@ class QuestionProvider extends ChangeNotifier {
     try {
       _isLoading = true;
       _error = null;
+      if (mode != 'adaptive') _adaptivePlan = null;
       notifyListeners();
 
       final res = await _api.getPracticeQuestions(
@@ -436,6 +482,7 @@ class QuestionProvider extends ChangeNotifier {
       );
       _currentQuestions =
           (res.data as List).map((json) => Question.fromJson(json)).toList();
+      _clearPracticeSessionResults();
       _currentIndex = 0;
       _lastResult = null;
       _examResult = null;
@@ -473,6 +520,7 @@ class QuestionProvider extends ChangeNotifier {
         _error = null;
       } else {
         _currentQuestions = [];
+        _clearPracticeSessionResults();
         _currentQuestion = null;
         _lastResult = null;
         _examResult = null;
@@ -497,6 +545,69 @@ class QuestionProvider extends ChangeNotifier {
     }
   }
 
+  Future<AIAdaptivePracticePlan?> loadAdaptiveQuestions({
+    int limit = 10,
+    int? chapterId,
+    bool excludeCurrentQuestions = false,
+  }) async {
+    try {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+      final excludedIds = excludeCurrentQuestions
+          ? _currentQuestions.map((question) => question.id).toList()
+          : const <int>[];
+      final res = await _api.getAIAdaptivePractice(
+        examCategory: _examCategory,
+        limit: limit,
+        chapterId: chapterId,
+        excludeQuestionIds: excludedIds,
+      );
+      final plan = AIAdaptivePracticePlan.fromJson(res.data);
+      _adaptivePlan = plan;
+      _currentQuestions = plan.questions;
+      _clearPracticeSessionResults();
+      _currentIndex = 0;
+      _lastResult = null;
+      _examResult = null;
+      _examAnswers.clear();
+      _currentQuestion =
+          _currentQuestions.isNotEmpty ? _currentQuestions.first : null;
+      _practiceMode = 'adaptive';
+      _practiceTitle = plan.title;
+      _practiceChapterId = plan.focusChapterId;
+      _practiceAttempted = true;
+      _recentStudyTitle = plan.title;
+      _recentStudyAction =
+          _currentQuestions.isEmpty ? '重新生成 AI 自适应练习' : '继续 AI 自适应练习';
+      _recentChapterId = plan.focusChapterId;
+      _recentStudyMode = 'adaptive';
+      _recentStudyTag = null;
+      _recentStudyLimit = limit;
+      _recentQuestionIds = _currentQuestions.map((q) => q.id).toList();
+      _recentStudyIndex = 0;
+      if (_currentQuestions.isEmpty) {
+        _error = 'AI 暂未选出合适题目，请先完成一组基础练习';
+        return null;
+      }
+      return plan;
+    } catch (e) {
+      _adaptivePlan = null;
+      _currentQuestions = [];
+      _clearPracticeSessionResults();
+      _currentQuestion = null;
+      _lastResult = null;
+      _practiceMode = 'adaptive';
+      _practiceTitle = 'AI 自适应练习';
+      _practiceAttempted = true;
+      _error = 'AI 自适应题组生成失败，请稍后重试';
+      return null;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> loadExamQuestions({int count = 50}) async {
     try {
       _isLoading = true;
@@ -509,6 +620,7 @@ class QuestionProvider extends ChangeNotifier {
       );
       _currentQuestions =
           (res.data as List).map((json) => Question.fromJson(json)).toList();
+      _clearPracticeSessionResults();
       _currentIndex = 0;
       _lastResult = null;
       _examResult = null;
@@ -531,6 +643,7 @@ class QuestionProvider extends ChangeNotifier {
         _error = null;
       } else {
         _currentQuestions = [];
+        _clearPracticeSessionResults();
         _currentQuestion = null;
         _lastResult = null;
         _examResult = null;
@@ -595,6 +708,7 @@ class QuestionProvider extends ChangeNotifier {
       }
     }
     _currentIndex = 0;
+    _clearPracticeSessionResults();
     _lastResult = null;
     _examResult = null;
     _examAnswers.clear();
@@ -616,6 +730,8 @@ class QuestionProvider extends ChangeNotifier {
 
   String _modeTitle(String mode, {String? tag}) {
     switch (mode) {
+      case 'adaptive':
+        return 'AI 自适应练习';
       case 'unanswered':
         return '未做题练习';
       case 'wrong':
@@ -639,6 +755,7 @@ class QuestionProvider extends ChangeNotifier {
     if (_currentQuestions.length > count) {
       _currentQuestions = _currentQuestions.take(count).toList();
     }
+    _clearPracticeSessionResults();
     _currentIndex = 0;
     _lastResult = null;
     _examResult = null;
@@ -740,6 +857,7 @@ class QuestionProvider extends ChangeNotifier {
         explanation: _currentQuestion!.explanation ??
             '本题考察${_currentQuestion!.tags.join("、")}相关知识点',
       );
+      _recordPracticeResult(timeSpent);
       notifyListeners();
       return _lastResult;
     }
@@ -762,6 +880,7 @@ class QuestionProvider extends ChangeNotifier {
         explanation: _lastResult!.explanation,
         wrongReason: _lastResult!.wrongReason,
       );
+      _recordPracticeResult(timeSpent);
       notifyListeners();
       return _lastResult;
     } catch (e) {
@@ -779,15 +898,20 @@ class QuestionProvider extends ChangeNotifier {
     final title = _recentStudyTitle;
     if (title == null) return;
     final targetIndex = _recentStudyIndex;
+    final recentMode = _recentStudyMode ?? 'chapter';
     await loadPracticeQuestions(
-      chapterId: _recentChapterId,
+      chapterId: recentMode == 'adaptive' ? null : _recentChapterId,
       questionIds: _recentQuestionIds,
-      mode: _recentStudyMode ?? 'chapter',
+      mode: recentMode == 'adaptive' ? 'random' : recentMode,
       tag: _recentStudyTag,
       title: title,
       limit: _recentStudyLimit,
     );
     if (_currentQuestions.isNotEmpty) {
+      if (recentMode == 'adaptive') {
+        _practiceMode = 'adaptive';
+        _recentStudyMode = 'adaptive';
+      }
       _currentIndex = targetIndex.clamp(0, _currentQuestions.length - 1);
       _currentQuestion = _currentQuestions[_currentIndex];
       _recentStudyIndex = _currentIndex;
@@ -824,11 +948,13 @@ class QuestionProvider extends ChangeNotifier {
 
   void reset() {
     _currentQuestions = [];
+    _clearPracticeSessionResults();
     _currentIndex = 0;
     _currentQuestion = null;
     _lastResult = null;
     _examResult = null;
     _examAnswers.clear();
+    _adaptivePlan = null;
     _practiceChapterId = null;
     _practiceAttempted = false;
     _practiceMode = 'chapter';
@@ -840,11 +966,13 @@ class QuestionProvider extends ChangeNotifier {
   void clearUserSession() {
     _chapters = [];
     _currentQuestions = [];
+    _clearPracticeSessionResults();
     _currentIndex = 0;
     _currentQuestion = null;
     _lastResult = null;
     _examResult = null;
     _examAttempts = [];
+    _adaptivePlan = null;
     _examAnswers.clear();
     _practiceChapterId = null;
     _practiceAttempted = false;
@@ -866,5 +994,18 @@ class QuestionProvider extends ChangeNotifier {
   void clearError() {
     _error = null;
     notifyListeners();
+  }
+
+  void _recordPracticeResult(int timeSpent) {
+    final question = _currentQuestion;
+    final result = _lastResult;
+    if (question == null || result == null || _practiceMode == 'exam') return;
+    _practiceResults[question.id] = result;
+    _practiceTimeSpent[question.id] = timeSpent.clamp(0, 86400);
+  }
+
+  void _clearPracticeSessionResults() {
+    _practiceResults.clear();
+    _practiceTimeSpent.clear();
   }
 }

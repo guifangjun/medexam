@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/constants/api_constants.dart';
 import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/ai_chat_provider.dart';
 import '../../../data/providers/question_provider.dart';
@@ -12,6 +11,7 @@ import '../../widgets/exam_category_picker.dart';
 import '../practice/practice_screen.dart';
 import '../exam/exam_screen.dart';
 import '../ai_chat/ai_chat_screen.dart';
+import '../ai_case/ai_case_screen.dart';
 import '../course/course_screen.dart';
 import '../study/study_screen.dart';
 import '../stats/stats_screen.dart';
@@ -88,6 +88,12 @@ class HomeScreenState extends State<HomeScreen> {
       context
           .read<AIChatProvider>()
           .clearLearningPath(exceptExamCategory: category);
+      context
+          .read<AIChatProvider>()
+          .clearSprintPlan(exceptExamCategory: category);
+      context
+          .read<AIChatProvider>()
+          .clearErrorPatternReport(exceptExamCategory: category);
     });
   }
 
@@ -108,6 +114,12 @@ class HomeScreenState extends State<HomeScreen> {
     context
         .read<AIChatProvider>()
         .clearLearningPath(exceptExamCategory: category);
+    context
+        .read<AIChatProvider>()
+        .clearSprintPlan(exceptExamCategory: category);
+    context
+        .read<AIChatProvider>()
+        .clearErrorPatternReport(exceptExamCategory: category);
 
     final auth = context.read<AuthProvider>();
     final saved = await auth.updateTargetExam(category);
@@ -319,6 +331,8 @@ class _HomeTabState extends State<_HomeTab> {
                             prescription, study.wrongReviewPlan),
                         const SizedBox(height: 14),
                         _buildAiCoachCard(stats, prescription, examCategory),
+                        const SizedBox(height: 14),
+                        _buildAiCaseEntry(examCategory, prescription),
                         if (questionProvider.recentStudyTitle != null) ...[
                           const SizedBox(height: 14),
                           _buildContinueCard(questionProvider),
@@ -395,6 +409,7 @@ class _HomeTabState extends State<_HomeTab> {
     final estimatedMinutes = (targetQuestions * 0.7).round();
     final hasTodayTask = task != null;
     final planTitle = plan?.title ?? '当前考试分类';
+    final examCountdown = _examCountdownText(user?.targetDate);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
       child: GlassCard(
@@ -423,7 +438,7 @@ class _HomeTabState extends State<_HomeTab> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${user?.fullName ?? user?.username ?? "医生"} · 距考试 42 天',
+                        '${user?.fullName ?? user?.username ?? "医生"} · $examCountdown',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -548,6 +563,16 @@ class _HomeTabState extends State<_HomeTab> {
     );
   }
 
+  String _examCountdownText(DateTime? targetDate) {
+    if (targetDate == null) return '未设置考试日期';
+    final today = DateUtils.dateOnly(DateTime.now());
+    final target = DateUtils.dateOnly(targetDate);
+    final days = target.difference(today).inDays;
+    if (days < 0) return '考试日期已过，请重新规划';
+    if (days == 0) return '今天考试';
+    return '距考试 $days 天';
+  }
+
   Widget _buildSectionHeader(String title, VoidCallback onTap) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -610,18 +635,17 @@ class _HomeTabState extends State<_HomeTab> {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final crossAxisCount = width >= 900 ? 4 : 2;
-        final aspectRatio = width >= 900
-            ? 2.3
-            : width >= 620
-                ? 2.0
-                : 1.28;
+        // 四列布局如果继续使用宽高比，桌面窗口中的卡片反而只有约
+        // 100px 高，标题下方的说明文字会被裁切。直接给卡片稳定高度，
+        // 同时为窄屏保留更充足的触控空间。
+        final cardHeight = width >= 900 ? 136.0 : 142.0;
         return GridView.count(
           crossAxisCount: crossAxisCount,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 12,
           crossAxisSpacing: 12,
-          childAspectRatio: aspectRatio,
+          mainAxisExtent: cardHeight,
           children: actions,
         );
       },
@@ -1084,6 +1108,104 @@ class _HomeTabState extends State<_HomeTab> {
           TextButton(
             onPressed: () => _startPrescription(prescription),
             child: const Text('挑战'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiCaseEntry(
+    String examCategory,
+    StudyPrescription? prescription,
+  ) {
+    final weakArea = prescription?.weakAreas.isNotEmpty == true
+        ? prescription!.weakAreas.first
+        : null;
+    return GlassCard(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AICaseScreen(
+            examCategory: examCategory,
+            initialTopic: weakArea?.chapterName,
+            chapterId: weakArea?.chapterId,
+          ),
+        ),
+      ),
+      padding: const EdgeInsets.all(16),
+      tint: const Color(0xFF6C5CE7).withOpacity(0.08),
+      borderColor: const Color(0xFF6C5CE7).withOpacity(0.18),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: const Color(0xFF6C5CE7).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: const Icon(
+              Icons.medical_information_outlined,
+              color: Color(0xFF6C5CE7),
+              size: 25,
+            ),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'AI 临床病例推演',
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF6C5CE7),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const Text(
+                        'NEW',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  weakArea == null
+                      ? '分步读取病例、做出判断，AI 即时纠正临床思维链。'
+                      : '根据薄弱章节「${weakArea.chapterName}」生成三阶段病例挑战。',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    height: 1.4,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: Color(0xFF6C5CE7),
           ),
         ],
       ),
@@ -1742,7 +1864,7 @@ class _QuickActionCard extends StatelessWidget {
             ),
             child: Icon(icon, color: color, size: 22),
           ),
-          const Spacer(),
+          const SizedBox(height: 18),
           Text(title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -1754,8 +1876,11 @@ class _QuickActionCard extends StatelessWidget {
           Text(subtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style:
-                  const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.25,
+                color: AppTheme.textSecondary,
+              )),
         ],
       ),
     );

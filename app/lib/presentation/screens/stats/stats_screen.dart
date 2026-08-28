@@ -4,8 +4,11 @@ import 'package:fl_chart/fl_chart.dart';
 
 import '../../../data/providers/study_provider.dart';
 import '../../../data/providers/question_provider.dart';
+import '../../../data/providers/ai_chat_provider.dart';
+import '../../../data/models/conversation.dart';
 import '../../../data/models/study.dart';
 import '../../../core/theme/app_theme.dart';
+import '../practice/practice_screen.dart';
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({super.key});
@@ -85,6 +88,22 @@ class _StatsScreenState extends State<StatsScreen> {
                   _AccuracyChart(
                       points: provider.overview?.accuracyTrend ?? []),
                   const SizedBox(height: 16),
+                  Consumer<AIChatProvider>(
+                    builder: (context, ai, _) {
+                      final report =
+                          ai.weaknessReportExamCategory == examCategory
+                              ? ai.weaknessReport
+                              : null;
+                      return _AIWeaknessTrendCard(
+                        examCategory: examCategory,
+                        report: report,
+                        isLoading: ai.isLoadingWeaknessReport,
+                        onGenerate: () => _generateWeaknessReport(examCategory),
+                        onPractice: _startWeaknessPractice,
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 16),
                   _WeakSubjectsCard(
                       subjectStats: provider.overview?.subjectStats ?? {}),
                 ],
@@ -92,6 +111,279 @@ class _StatsScreenState extends State<StatsScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Future<void> _generateWeaknessReport(String examCategory) async {
+    final ai = context.read<AIChatProvider>();
+    final report = await ai.buildWeaknessReport(
+      examCategory: examCategory,
+      periodDays: 30,
+    );
+    if (!mounted) return;
+    context.read<StudyProvider>().loadTodayStats(examCategory: examCategory);
+    if (report == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ai.error ?? 'AI 薄弱点诊断生成失败')),
+      );
+    }
+  }
+
+  Future<void> _startWeaknessPractice(AIWeaknessInsight insight) async {
+    final provider = context.read<QuestionProvider>();
+    await provider.loadPracticeQuestions(
+      chapterId: insight.chapterId,
+      mode: 'chapter',
+      title: '${insight.chapterName} · AI 补强训练',
+      limit: 20,
+    );
+    if (!mounted) return;
+    if (!provider.hasPracticeQuestions) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(provider.error ?? '该薄弱章节暂无可练习题目')),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const PracticeScreen()),
+    );
+  }
+}
+
+class _AIWeaknessTrendCard extends StatelessWidget {
+  final String examCategory;
+  final AIWeaknessReport? report;
+  final bool isLoading;
+  final VoidCallback onGenerate;
+  final ValueChanged<AIWeaknessInsight> onPractice;
+
+  const _AIWeaknessTrendCard({
+    required this.examCategory,
+    required this.report,
+    required this.isLoading,
+    required this.onGenerate,
+    required this.onPractice,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final data = report;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF6C5CE7).withOpacity(0.11),
+            AppTheme.primary.withOpacity(0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFF6C5CE7).withOpacity(0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6C5CE7).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.auto_graph_rounded,
+                    color: Color(0xFF6C5CE7)),
+              ),
+              const SizedBox(width: 11),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'AI 长期薄弱点追踪',
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      '比较最近 30 天与上一周期，识别真正需要补强的章节',
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (data == null) ...[
+            Text(
+              '基于「$examCategory」历史答题记录分析章节正确率、题量和变化趋势，避免只因偶然错一题就判定为薄弱。',
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 13),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton.icon(
+                onPressed: isLoading ? null : onGenerate,
+                icon: isLoading
+                    ? const SizedBox(
+                        width: 17,
+                        height: 17,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.psychology_alt_rounded, size: 19),
+                label: Text(isLoading ? '正在分析历史趋势...' : '生成 AI 薄弱点诊断'),
+              ),
+            ),
+          ] else ...[
+            Text(
+              data.summary,
+              style: const TextStyle(
+                color: AppTheme.textPrimary,
+                height: 1.55,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (data.items.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(13),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: const Text(
+                  '完成一组练习后再来诊断，数据越连续，趋势越可靠。',
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+              )
+            else
+              ...data.items.take(4).map(
+                    (item) => _WeaknessTrendItem(
+                      item: item,
+                      onPractice: () => onPractice(item),
+                    ),
+                  ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: isLoading ? null : onGenerate,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: Text(isLoading ? '重新分析中...' : '更新诊断'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _WeaknessTrendItem extends StatelessWidget {
+  final AIWeaknessInsight item;
+  final VoidCallback onPractice;
+
+  const _WeaknessTrendItem({required this.item, required this.onPractice});
+
+  @override
+  Widget build(BuildContext context) {
+    final accuracy = (item.recentAccuracy * 100).round();
+    final isImproving = (item.trendDelta ?? 0) > 0.05;
+    final isDeclining = (item.trendDelta ?? 0) < -0.05;
+    final trendColor = isImproving
+        ? AppTheme.success
+        : isDeclining
+            ? AppTheme.error
+            : AppTheme.textSecondary;
+    final trendIcon = isImproving
+        ? Icons.trending_up_rounded
+        : isDeclining
+            ? Icons.trending_down_rounded
+            : Icons.trending_flat_rounded;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.78),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.divider.withOpacity(0.8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  item.chapterName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Icon(trendIcon, color: trendColor, size: 18),
+              const SizedBox(width: 4),
+              Text(
+                item.trend,
+                style: TextStyle(
+                  color: trendColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '近 30 天 ${item.recentQuestions} 题 · 正确率 $accuracy% · 错 ${item.wrongCount} 题 · ${item.status}',
+            style: const TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            item.recommendation,
+            style: const TextStyle(
+              color: AppTheme.textPrimary,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onPractice,
+              icon: const Icon(Icons.play_arrow_rounded, size: 17),
+              label: const Text('开始补强'),
+            ),
+          ),
+        ],
       ),
     );
   }
