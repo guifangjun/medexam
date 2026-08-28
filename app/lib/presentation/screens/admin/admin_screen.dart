@@ -587,6 +587,7 @@ class _AdminScreenState extends State<AdminScreen> {
               onSearch: _loadAll,
               onSave: _saveUser,
               onDelete: _deleteUser,
+              onAnalyze: _loadUserLearningAnalysis,
             )
           else if (_tab == 3)
             _DashboardManager(
@@ -663,6 +664,19 @@ class _AdminScreenState extends State<AdminScreen> {
     await _api.deleteAdminUser(id);
     await _loadAll();
     _showAdminSnack('用户已删除');
+  }
+
+  Future<Map<String, dynamic>> _loadUserLearningAnalysis(
+    int userId, {
+    String? examCategory,
+    int days = 30,
+  }) async {
+    final res = await _api.getAdminUserLearningAnalysis(
+      userId,
+      examCategory: examCategory,
+      days: days,
+    );
+    return Map<String, dynamic>.from(res.data);
   }
 
   Future<void> _saveExamCategory(Map<String, dynamic> data, {int? id}) async {
@@ -2176,6 +2190,11 @@ class _UserManager extends StatelessWidget {
   final Future<void> Function() onSearch;
   final Future<void> Function(Map<String, dynamic> data, {int? id}) onSave;
   final Future<void> Function(int id) onDelete;
+  final Future<Map<String, dynamic>> Function(
+    int userId, {
+    String? examCategory,
+    int days,
+  }) onAnalyze;
 
   const _UserManager({
     required this.users,
@@ -2189,6 +2208,7 @@ class _UserManager extends StatelessWidget {
     required this.onSearch,
     required this.onSave,
     required this.onDelete,
+    required this.onAnalyze,
   });
 
   @override
@@ -2323,6 +2343,12 @@ class _UserManager extends StatelessWidget {
                     },
                   ),
                   IconButton(
+                    tooltip: '学习分析',
+                    onPressed: () => _showLearningAnalysis(context, user),
+                    icon: const Icon(Icons.insights_rounded,
+                        color: AppTheme.primary),
+                  ),
+                  IconButton(
                     tooltip: '编辑用户',
                     onPressed: () => _showUserDialog(context, user),
                     icon: const Icon(Icons.edit_rounded),
@@ -2346,6 +2372,115 @@ class _UserManager extends StatelessWidget {
     final raw = value?.toString();
     if (raw == null || raw.isEmpty) return '-';
     return raw.length >= 10 ? raw.substring(0, 10) : raw;
+  }
+
+  void _showLearningAnalysis(BuildContext context, Map<String, dynamic> user) {
+    var days = 30;
+    var category = (user['target_exam'] ?? '').toString();
+    Future<Map<String, dynamic>> load() => onAnalyze(
+          user['id'],
+          examCategory: category.isEmpty ? null : category,
+          days: days,
+        );
+    var future = load();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          titlePadding: const EdgeInsets.fromLTRB(22, 18, 14, 0),
+          contentPadding: const EdgeInsets.fromLTRB(22, 14, 22, 10),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '学习分析 · ${user['full_name'] ?? user['phone'] ?? user['id']}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.pop(ctx),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 920,
+            height: MediaQuery.of(ctx).size.height * 0.78,
+            child: Column(
+              children: [
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 360,
+                      child: DropdownButtonFormField<String>(
+                        value: examCategories.contains(category)
+                            ? category
+                            : examCategories.first,
+                        decoration: const InputDecoration(labelText: '分析考试类别'),
+                        items: examCategories
+                            .map((item) => DropdownMenuItem(
+                                  value: item,
+                                  child: Text(item),
+                                ))
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setDialogState(() {
+                            category = value;
+                            future = load();
+                          });
+                        },
+                      ),
+                    ),
+                    SegmentedButton<int>(
+                      segments: const [
+                        ButtonSegment(value: 7, label: Text('7 天')),
+                        ButtonSegment(value: 30, label: Text('30 天')),
+                        ButtonSegment(value: 90, label: Text('90 天')),
+                      ],
+                      selected: {days},
+                      onSelectionChanged: (value) {
+                        setDialogState(() {
+                          days = value.first;
+                          future = load();
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: FutureBuilder<Map<String, dynamic>>(
+                    future: future,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (snapshot.hasError) {
+                        return _AdminInlineError(
+                          message:
+                              _adminErrorMessage(snapshot.error!, '学习分析加载失败'),
+                          onRetry: () async {
+                            setDialogState(() => future = load());
+                          },
+                        );
+                      }
+                      return _LearningAnalysisPanel(
+                        data: snapshot.data ?? const {},
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _showUserDialog(BuildContext context, [Map<String, dynamic>? user]) {
@@ -2496,6 +2631,322 @@ class _UserManager extends StatelessWidget {
         );
       }
     }
+  }
+}
+
+class _LearningAnalysisPanel extends StatelessWidget {
+  final Map<String, dynamic> data;
+
+  const _LearningAnalysisPanel({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final user = Map<String, dynamic>.from(data['user'] ?? const {});
+    final overview = Map<String, dynamic>.from(data['overview'] ?? const {});
+    final today = Map<String, dynamic>.from(data['today'] ?? const {});
+    final wrong = Map<String, dynamic>.from(data['wrong'] ?? const {});
+    final exam = Map<String, dynamic>.from(data['exam'] ?? const {});
+    final ai = Map<String, dynamic>.from(data['ai'] ?? const {});
+    final weakChapters =
+        List<Map<String, dynamic>>.from(data['weak_chapters'] ?? const []);
+    final trend = List<Map<String, dynamic>>.from(data['trend'] ?? const []);
+    final recentExams =
+        List<Map<String, dynamic>>.from(exam['recent'] ?? const []);
+    final advice = List<String>.from(data['advice'] ?? const []);
+    final hasLearningData = (overview['total_questions'] ?? 0) > 0 ||
+        (overview['period_questions'] ?? 0) > 0 ||
+        (overview['period_study_time'] ?? 0) > 0;
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.primary.withOpacity(0.10)),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: AppTheme.primary.withOpacity(0.12),
+                  child:
+                      const Icon(Icons.person_rounded, color: AppTheme.primary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${user['full_name'] ?? '未填写姓名'} · ${user['phone'] ?? user['username'] ?? '-'}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${data['exam_category'] ?? user['target_exam'] ?? '-'} · ${user['is_active'] == false ? '停用' : '启用'} · 注册 ${_shortDate(user['created_at'])}',
+                        style: const TextStyle(color: AppTheme.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _MetricCard.compact(
+                  label: '累计做题',
+                  value: '${overview['total_questions'] ?? 0}',
+                  color: AppTheme.primary),
+              _MetricCard.compact(
+                  label: '综合正确率',
+                  value: _percent(overview['accuracy_rate']),
+                  color: AppTheme.success),
+              _MetricCard.compact(
+                  label: '活跃天数',
+                  value: '${overview['active_days'] ?? 0}',
+                  color: AppTheme.accent),
+              _MetricCard.compact(
+                  label: '待复习错题',
+                  value: '${wrong['pending'] ?? 0}',
+                  color: Colors.orange),
+              _MetricCard.compact(
+                  label: '模考次数',
+                  value: '${exam['count'] ?? 0}',
+                  color: Colors.indigo),
+              _MetricCard.compact(
+                  label: 'AI 提问',
+                  value: '${ai['question_count'] ?? 0}',
+                  color: Colors.purple),
+            ],
+          ),
+          const SizedBox(height: 18),
+          _SectionTitle(
+            title: '今日学习',
+            subtitle:
+                '${today['total_questions'] ?? 0} 题 · 正确率 ${_percent(today['accuracy_rate'])} · 学习 ${_minutes(today['time_spent'])} 分钟 · AI ${today['ai_questions'] ?? 0} 次',
+          ),
+          if (!hasLearningData) const _EmptyHint(text: '该学员暂无学习记录'),
+          const SizedBox(height: 16),
+          _SectionTitle(
+            title: '近 ${data['days'] ?? 30} 天学习趋势',
+            subtitle:
+                '周期内 ${overview['period_questions'] ?? 0} 题 · 正确率 ${_percent(overview['period_accuracy'])} · 学习 ${_minutes(overview['period_study_time'])} 分钟',
+          ),
+          const SizedBox(height: 8),
+          if (trend.isEmpty)
+            const _EmptyHint(text: '该学员暂无学习记录')
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: trend
+                  .where((item) =>
+                      (item['total_questions'] ?? 0) > 0 ||
+                      (item['time_spent'] ?? 0) > 0)
+                  .take(14)
+                  .map(
+                    (item) => Chip(
+                      label: Text(
+                        '${_shortDate(item['date'])}：${item['total_questions'] ?? 0}题 / ${_percent(item['accuracy_rate'])}',
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          const SizedBox(height: 18),
+          const _SectionTitle(title: '薄弱章节排行'),
+          const SizedBox(height: 8),
+          if (weakChapters.isEmpty)
+            const _EmptyHint(text: '该学员暂无章节练习记录')
+          else
+            ...weakChapters.map(
+              (item) => _AnalysisListTile(
+                icon: Icons.warning_amber_rounded,
+                title: '${item['chapter_name'] ?? '-'}',
+                subtitle:
+                    '${item['total_questions'] ?? 0} 题 · 错 ${item['wrong_count'] ?? 0} 题',
+                trailing: _percent(item['accuracy_rate']),
+                color: AppTheme.error,
+              ),
+            ),
+          const SizedBox(height: 18),
+          const _SectionTitle(title: '错题与模考'),
+          const SizedBox(height: 8),
+          _AnalysisListTile(
+            icon: Icons.assignment_late_rounded,
+            title: '错题本',
+            subtitle:
+                '总错题 ${wrong['total'] ?? 0} · 已掌握 ${wrong['mastered'] ?? 0} · 复习 ${wrong['review_count'] ?? 0} 次',
+            trailing: '${wrong['pending'] ?? 0} 待复习',
+            color: Colors.orange,
+          ),
+          if (recentExams.isEmpty)
+            const _EmptyHint(text: '该学员暂无模考记录')
+          else
+            ...recentExams.map(
+              (item) => _AnalysisListTile(
+                icon: Icons.fact_check_rounded,
+                title: '模考 ${_shortDate(item['created_at'])}',
+                subtitle:
+                    '${item['total_questions'] ?? 0} 题 · 对 ${item['correct_count'] ?? 0} · 错 ${item['wrong_count'] ?? 0}',
+                trailing:
+                    '${item['score'] ?? 0} 分 / ${_percent(item['accuracy_rate'])}',
+                color: Colors.indigo,
+              ),
+            ),
+          const SizedBox(height: 18),
+          const _SectionTitle(title: 'AI 学习使用'),
+          const SizedBox(height: 8),
+          _AnalysisListTile(
+            icon: Icons.auto_awesome_rounded,
+            title: 'AI 辅助学习',
+            subtitle:
+                '会话 ${ai['session_count'] ?? 0} · 收藏 ${ai['collection_count'] ?? 0} · 知识卡 ${ai['knowledge_card_count'] ?? 0}',
+            trailing: '${ai['question_count'] ?? 0} 提问',
+            color: Colors.purple,
+          ),
+          const SizedBox(height: 18),
+          const _SectionTitle(title: '运营跟进建议'),
+          const SizedBox(height: 8),
+          if (advice.isEmpty)
+            const _EmptyHint(text: '暂无建议')
+          else
+            ...advice.map(
+              (item) => _AnalysisListTile(
+                icon: Icons.lightbulb_outline_rounded,
+                title: item,
+                subtitle: '基于学习活跃、正确率、错题、模考和 AI 使用自动判断',
+                color: AppTheme.primary,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static String _percent(dynamic value) {
+    final number = value is num ? value.toDouble() : 0.0;
+    return '${(number * 100).round()}%';
+  }
+
+  static int _minutes(dynamic value) {
+    final seconds = value is num ? value.toInt() : 0;
+    return (seconds / 60).round();
+  }
+
+  static String _shortDate(dynamic value) {
+    final raw = value?.toString() ?? '';
+    if (raw.isEmpty) return '-';
+    return raw.length >= 10 ? raw.substring(0, 10) : raw;
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+
+  const _SectionTitle({required this.title, this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        if (subtitle != null) ...[
+          const SizedBox(height: 4),
+          Text(subtitle!,
+              style: const TextStyle(color: AppTheme.textSecondary)),
+        ],
+      ],
+    );
+  }
+}
+
+class _EmptyHint extends StatelessWidget {
+  final String text;
+
+  const _EmptyHint({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.surface.withOpacity(0.75),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Text(text, style: const TextStyle(color: AppTheme.textSecondary)),
+    );
+  }
+}
+
+class _AnalysisListTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String? trailing;
+  final Color color;
+
+  const _AnalysisListTile({
+    required this.icon,
+    required this.title,
+    this.subtitle = '',
+    this.trailing,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(0.12)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(subtitle,
+                      style: const TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 12,
+                      )),
+                ],
+              ],
+            ),
+          ),
+          if (trailing != null)
+            Text(trailing!,
+                style: TextStyle(color: color, fontWeight: FontWeight.w800)),
+        ],
+      ),
+    );
   }
 }
 

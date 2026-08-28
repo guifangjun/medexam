@@ -377,6 +377,21 @@ class ApiService {
     });
   }
 
+  Future<Response> getAdminUserLearningAnalysis(
+    int userId, {
+    String? examCategory,
+    int days = 30,
+  }) async {
+    return _dio.get(
+      '${ApiConstants.adminUsers}/$userId/learning-analysis',
+      queryParameters: {
+        'days': days,
+        if (examCategory != null && examCategory.isNotEmpty)
+          'exam_category': examCategory,
+      },
+    );
+  }
+
   Future<Response> createAdminUser(Map<String, dynamic> data) async {
     return _dio.post(ApiConstants.adminUsers, data: data);
   }

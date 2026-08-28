@@ -492,6 +492,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
                 StudyPlan,
                 DailyTask,
                 QuestionRecord,
+                AIKnowledgeCard,
             ):
                 count = await db.scalar(
                     select(func.count()).select_from(model).where(model.user_id == user_id)
@@ -511,6 +512,174 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
             data={"username": "13900000004", "password": "demo123"},
         )
         self.assertEqual(relogin.status_code, 401)
+
+    async def test_admin_user_learning_analysis_aggregates_student_data(self):
+        created = await self.client.post(
+            "/api/admin/users",
+            json={
+                "phone": "13900009995",
+                "password": "demo123",
+                "full_name": "学习分析测试用户",
+                "target_exam": "中医执业医师",
+            },
+            headers=self.admin_headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        user_id = created.json()["id"]
+
+        async with AsyncSessionLocal() as db:
+            chapter = Chapter(
+                name="学习分析测试章节",
+                exam_category="中医执业医师",
+                order=999,
+            )
+            db.add(chapter)
+            await db.flush()
+            question_1 = Question(
+                chapter_id=chapter.id,
+                content="学习分析测试题 1",
+                options={"A": "正确", "B": "错误", "C": "干扰", "D": "干扰"},
+                answer="A",
+                explanation="测试解析 1",
+            )
+            question_2 = Question(
+                chapter_id=chapter.id,
+                content="学习分析测试题 2",
+                options={"A": "错误", "B": "正确", "C": "干扰", "D": "干扰"},
+                answer="B",
+                explanation="测试解析 2",
+            )
+            db.add_all([question_1, question_2])
+            await db.flush()
+            q1_id = question_1.id
+            q2_id = question_2.id
+            await db.commit()
+        wrong_answer = "A"
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        async with AsyncSessionLocal() as db:
+            db.add_all(
+                [
+                    StudyStats(
+                        user_id=user_id,
+                        date=today,
+                        total_questions=2,
+                        correct_count=1,
+                        wrong_count=1,
+                        accuracy_rate=0.5,
+                        time_spent=180,
+                        ai_questions=2,
+                    ),
+                    QuestionRecord(
+                        user_id=user_id,
+                        question_id=q1_id,
+                        selected_answer="A",
+                        is_correct=True,
+                        is_wrong=False,
+                        time_spent=60,
+                    ),
+                    QuestionRecord(
+                        user_id=user_id,
+                        question_id=q2_id,
+                        selected_answer=wrong_answer,
+                        is_correct=False,
+                        is_wrong=True,
+                        wrong_reason="概念混淆",
+                        time_spent=120,
+                    ),
+                    WrongQuestion(
+                        user_id=user_id,
+                        question_id=q2_id,
+                        wrong_reason="概念混淆",
+                        review_count=3,
+                        is_mastered=False,
+                        next_review_at=datetime.now(),
+                    ),
+                    ExamAttempt(
+                        user_id=user_id,
+                        exam_category="中医执业医师",
+                        total_questions=2,
+                        answered_count=2,
+                        correct_count=1,
+                        wrong_count=1,
+                        score=50,
+                        accuracy_rate=0.5,
+                        time_spent=300,
+                    ),
+                    AIConversation(
+                        user_id=user_id,
+                        session_id="admin-analysis-test",
+                        message_type="user",
+                        content="帮我分析错题",
+                        exam_category="中医执业医师",
+                    ),
+                    AIConversation(
+                        user_id=user_id,
+                        session_id="admin-analysis-test",
+                        message_type="assistant",
+                        content="建议先复习基础概念",
+                        exam_category="中医执业医师",
+                        is_collected=True,
+                    ),
+                    AIKnowledgeCard(
+                        user_id=user_id,
+                        exam_category="中医执业医师",
+                        title="测试记忆卡",
+                        front="概念是什么？",
+                        back="核心解释",
+                    ),
+                ]
+            )
+            await db.commit()
+
+        unauthorized = await self.client.get(
+            f"/api/admin/users/{user_id}/learning-analysis"
+        )
+        self.assertEqual(unauthorized.status_code, 401, unauthorized.text)
+
+        missing = await self.client.get(
+            "/api/admin/users/999999/learning-analysis",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(missing.status_code, 404, missing.text)
+
+        invalid_days = await self.client.get(
+            f"/api/admin/users/{user_id}/learning-analysis",
+            params={"days": 8},
+            headers=self.admin_headers,
+        )
+        self.assertEqual(invalid_days.status_code, 400, invalid_days.text)
+
+        analysis = await self.client.get(
+            f"/api/admin/users/{user_id}/learning-analysis",
+            params={"exam_category": "中医执业医师", "days": 30},
+            headers=self.admin_headers,
+        )
+        self.assertEqual(analysis.status_code, 200, analysis.text)
+        data = analysis.json()
+        self.assertEqual(data["user"]["phone"], "13900009995")
+        self.assertEqual(data["exam_category"], "中医执业医师")
+        self.assertEqual(data["overview"]["total_questions"], 2)
+        self.assertEqual(data["overview"]["correct_count"], 1)
+        self.assertAlmostEqual(data["overview"]["accuracy_rate"], 0.5)
+        self.assertEqual(data["today"]["total_questions"], 2)
+        self.assertEqual(data["wrong"]["total"], 1)
+        self.assertEqual(data["wrong"]["pending"], 1)
+        self.assertEqual(data["wrong"]["review_count"], 3)
+        self.assertEqual(data["exam"]["count"], 1)
+        self.assertEqual(data["exam"]["best_score"], 50)
+        self.assertEqual(data["ai"]["question_count"], 1)
+        self.assertEqual(data["ai"]["session_count"], 1)
+        self.assertEqual(data["ai"]["collection_count"], 1)
+        self.assertEqual(data["ai"]["knowledge_card_count"], 1)
+        self.assertTrue(data["weak_chapters"])
+        self.assertTrue(
+            any("正确率" in item or "错题" in item for item in data["advice"])
+        )
+        deleted = await self.client.delete(
+            f"/api/admin/users/{user_id}", headers=self.admin_headers
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
 
     async def test_init_database_cleans_orphan_user_data(self):
         orphan_user_id = 999999

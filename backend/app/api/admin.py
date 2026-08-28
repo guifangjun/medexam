@@ -1,11 +1,11 @@
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from pydantic import BaseModel
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import create_access_token, get_password_hash, verify_password
@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.exam_categories import set_active_exam_categories, try_normalize_exam_category
 from app.models.admin_user import AdminUser
-from app.models.conversation import AIConversation
+from app.models.conversation import AIConversation, AIKnowledgeCard
 from app.models.course import Course
 from app.models.question import Chapter, ExamCategory, Question, QuestionRecord
 from app.models.question import ExamAttempt
@@ -473,6 +473,276 @@ async def list_users(
     return result.scalars().all()
 
 
+@router.get("/users/{user_id}/learning-analysis")
+async def get_user_learning_analysis(
+    user_id: int,
+    exam_category: Optional[str] = None,
+    days: int = 30,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if days not in (7, 30, 90):
+        raise HTTPException(status_code=400, detail="统计周期仅支持 7、30、90 天")
+
+    user = await db.scalar(select(User).where(User.id == user_id))
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    category = try_normalize_exam_category(exam_category) if exam_category else user.target_exam
+    if category is None:
+        raise HTTPException(status_code=400, detail="考试分类不正确")
+
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    start_date = (now - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+
+    stats_rows = (
+        await db.execute(
+            select(StudyStats)
+            .where(
+                StudyStats.user_id == user_id,
+                StudyStats.date >= start_date,
+                StudyStats.date <= today,
+            )
+            .order_by(StudyStats.date.asc())
+        )
+    ).scalars().all()
+    trend = [
+        {
+            "date": row.date,
+            "total_questions": row.total_questions or 0,
+            "correct_count": row.correct_count or 0,
+            "wrong_count": row.wrong_count or 0,
+            "accuracy_rate": row.accuracy_rate or 0.0,
+            "time_spent": row.time_spent or 0,
+            "ai_questions": row.ai_questions or 0,
+        }
+        for row in stats_rows
+    ]
+    total_questions = sum(item["total_questions"] for item in trend)
+    correct_count = sum(item["correct_count"] for item in trend)
+    wrong_count = sum(item["wrong_count"] for item in trend)
+    total_time = sum(item["time_spent"] for item in trend)
+    active_days = sum(1 for item in trend if item["total_questions"] > 0 or item["time_spent"] > 0)
+    last_study_date = next(
+        (
+            item["date"]
+            for item in reversed(trend)
+            if item["total_questions"] > 0 or item["time_spent"] > 0
+        ),
+        None,
+    )
+    today_row = next((item for item in trend if item["date"] == today), None)
+
+    record_totals = await db.execute(
+        select(
+            func.count(QuestionRecord.id).label("total"),
+            func.sum(
+                case((QuestionRecord.is_correct == True, 1), else_=0)
+            ).label("correct"),
+            func.sum(QuestionRecord.time_spent).label("time_spent"),
+        )
+        .join(Question, QuestionRecord.question_id == Question.id)
+        .join(Chapter, Question.chapter_id == Chapter.id)
+        .where(
+            QuestionRecord.user_id == user_id,
+            Chapter.exam_category == category,
+        )
+    )
+    record_summary = record_totals.one()
+    lifetime_questions = record_summary.total or 0
+    lifetime_correct = record_summary.correct or 0
+    lifetime_time = record_summary.time_spent or 0
+
+    wrong_stats = await db.execute(
+        select(
+            func.count(WrongQuestion.id).label("total"),
+            func.sum(case((WrongQuestion.is_mastered == False, 1), else_=0)).label("pending"),
+            func.sum(case((WrongQuestion.is_mastered == True, 1), else_=0)).label("mastered"),
+            func.sum(WrongQuestion.review_count).label("reviews"),
+        )
+        .join(Question, WrongQuestion.question_id == Question.id)
+        .join(Chapter, Question.chapter_id == Chapter.id)
+        .where(WrongQuestion.user_id == user_id, Chapter.exam_category == category)
+    )
+    wrong = wrong_stats.one()
+
+    exam_stats = await db.execute(
+        select(
+            func.count(ExamAttempt.id).label("count"),
+            func.avg(ExamAttempt.accuracy_rate).label("avg_accuracy"),
+            func.max(ExamAttempt.score).label("best_score"),
+        ).where(
+            ExamAttempt.user_id == user_id,
+            ExamAttempt.exam_category == category,
+        )
+    )
+    exam = exam_stats.one()
+    recent_exam = (
+        await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.user_id == user_id, ExamAttempt.exam_category == category)
+            .order_by(ExamAttempt.created_at.desc())
+            .limit(5)
+        )
+    ).scalars().all()
+
+    ai_stats = await db.execute(
+        select(
+            func.count(AIConversation.id).label("messages"),
+            func.count(func.distinct(AIConversation.session_id)).label("sessions"),
+            func.sum(
+                case((AIConversation.message_type == "user", 1), else_=0)
+            ).label("questions"),
+            func.sum(
+                case((AIConversation.is_collected == True, 1), else_=0)
+            ).label("collections"),
+        ).where(
+            AIConversation.user_id == user_id,
+            or_(AIConversation.exam_category == category, AIConversation.exam_category.is_(None)),
+        )
+    )
+    ai = ai_stats.one()
+    knowledge_card_count = await db.scalar(
+        select(func.count(AIKnowledgeCard.id)).where(
+            AIKnowledgeCard.user_id == user_id,
+            AIKnowledgeCard.exam_category == category,
+        )
+    ) or 0
+
+    weak_rows = await db.execute(
+        select(
+            Chapter.id.label("chapter_id"),
+            Chapter.name.label("chapter_name"),
+            func.count(QuestionRecord.id).label("total"),
+            func.sum(case((QuestionRecord.is_correct == False, 1), else_=0)).label("wrong"),
+            func.sum(case((QuestionRecord.is_correct == True, 1), else_=0)).label("correct"),
+        )
+        .join(Question, Question.chapter_id == Chapter.id)
+        .join(QuestionRecord, QuestionRecord.question_id == Question.id)
+        .where(
+            QuestionRecord.user_id == user_id,
+            Chapter.exam_category == category,
+        )
+        .group_by(Chapter.id, Chapter.name)
+        .having(func.count(QuestionRecord.id) > 0)
+        .order_by(
+            (func.sum(case((QuestionRecord.is_correct == True, 1), else_=0)) * 1.0
+             / func.count(QuestionRecord.id)).asc(),
+            func.count(QuestionRecord.id).desc(),
+        )
+        .limit(8)
+    )
+    weak_chapters = []
+    for row in weak_rows.all():
+        total = row.total or 0
+        correct = row.correct or 0
+        weak_chapters.append(
+            {
+                "chapter_id": row.chapter_id,
+                "chapter_name": row.chapter_name,
+                "total_questions": total,
+                "wrong_count": row.wrong or 0,
+                "correct_count": correct,
+                "accuracy_rate": correct / total if total else 0.0,
+            }
+        )
+
+    recent_active = [
+        item for item in trend[-7:] if item["total_questions"] > 0 or item["time_spent"] > 0
+    ]
+    advice = []
+    overall_accuracy = (lifetime_correct / lifetime_questions) if lifetime_questions else 0.0
+    pending_wrong = wrong.pending or 0
+    if not recent_active:
+        advice.append("近 7 天无学习记录，建议运营提醒回访。")
+    if lifetime_questions > 0 and overall_accuracy < 0.6:
+        advice.append("综合正确率低于 60%，建议先回到基础章节巩固。")
+    if pending_wrong >= 10:
+        advice.append("待复习错题较多，建议优先安排错题复习。")
+    if (exam.count or 0) > 0 and (exam.avg_accuracy or 0) < 0.6 and weak_chapters:
+        advice.append("模考表现偏弱且错题集中，建议按薄弱章节做专项练习。")
+    if (ai.questions or 0) < 3:
+        advice.append("AI 使用较少，可引导学员使用 AI 解析、错因雷达和学习路径。")
+    if not advice:
+        advice.append("学习节奏正常，可继续跟进今日任务、错题复习和阶段模考。")
+
+    return {
+        "user": {
+            "id": user.id,
+            "phone": user.phone or user.username,
+            "username": user.username,
+            "full_name": user.full_name,
+            "target_exam": user.target_exam,
+            "is_active": user.is_active,
+            "is_premium": user.is_premium,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        },
+        "exam_category": category,
+        "days": days,
+        "overview": {
+            "total_questions": lifetime_questions,
+            "correct_count": lifetime_correct,
+            "wrong_count": max(lifetime_questions - lifetime_correct, 0),
+            "accuracy_rate": overall_accuracy,
+            "study_time": lifetime_time,
+            "period_questions": total_questions,
+            "period_correct": correct_count,
+            "period_wrong": wrong_count,
+            "period_accuracy": correct_count / total_questions if total_questions else 0.0,
+            "period_study_time": total_time,
+            "active_days": active_days,
+            "last_study_date": last_study_date,
+        },
+        "today": today_row
+        or {
+            "date": today,
+            "total_questions": 0,
+            "correct_count": 0,
+            "wrong_count": 0,
+            "accuracy_rate": 0.0,
+            "time_spent": 0,
+            "ai_questions": 0,
+        },
+        "wrong": {
+            "total": wrong.total or 0,
+            "pending": pending_wrong,
+            "mastered": wrong.mastered or 0,
+            "review_count": wrong.reviews or 0,
+        },
+        "exam": {
+            "count": exam.count or 0,
+            "avg_accuracy": exam.avg_accuracy or 0.0,
+            "best_score": exam.best_score or 0,
+            "recent": [
+                {
+                    "id": item.id,
+                    "score": item.score or 0,
+                    "accuracy_rate": item.accuracy_rate or 0.0,
+                    "total_questions": item.total_questions or 0,
+                    "correct_count": item.correct_count or 0,
+                    "wrong_count": item.wrong_count or 0,
+                    "time_spent": item.time_spent or 0,
+                    "created_at": item.created_at.isoformat()
+                    if item.created_at
+                    else None,
+                }
+                for item in recent_exam
+            ],
+        },
+        "ai": {
+            "message_count": ai.messages or 0,
+            "session_count": ai.sessions or 0,
+            "question_count": ai.questions or 0,
+            "collection_count": ai.collections or 0,
+            "knowledge_card_count": knowledge_card_count,
+        },
+        "weak_chapters": weak_chapters,
+        "trend": trend,
+        "advice": advice,
+    }
+
+
 @router.post("/users", response_model=UserResponse)
 async def create_user(
     user: AdminManagedUserCreate,
@@ -567,6 +837,7 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="用户不存在")
     for model in (
         AIConversation,
+        AIKnowledgeCard,
         WrongQuestion,
         QuestionRecord,
         ExamAttempt,
