@@ -281,7 +281,7 @@ class _AdminScreenState extends State<AdminScreen> {
   var _isCheckingAuth = true;
   var _tab = 0;
   var _isLoading = false;
-  var _selectedExamCategory = AppConstants.examCategories.first;
+  String? _selectedExamCategory;
   int? _selectedChapterId;
   List<Chapter> _chapters = [];
   List<Map<String, dynamic>> _questions = [];
@@ -395,8 +395,9 @@ class _AdminScreenState extends State<AdminScreen> {
       _examCategories = List<Map<String, dynamic>>.from(examCategoryRes.data);
       _dashboard = Map<String, dynamic>.from(dashboardRes.data);
       final names = _activeExamCategoryNames;
-      if (!names.contains(_selectedExamCategory)) {
-        _selectedExamCategory = names.first;
+      if (_selectedExamCategory != null &&
+          !names.contains(_selectedExamCategory)) {
+        _selectedExamCategory = null;
         _selectedChapterId = null;
       }
       if (_selectedCourseExamCategory != null &&
@@ -1371,10 +1372,10 @@ class _QuestionManager extends StatelessWidget {
   final List<Chapter> chapters;
   final List<String> examCategories;
   final List<Map<String, dynamic>> examCategoryTree;
-  final String selectedExamCategory;
+  final String? selectedExamCategory;
   final int? selectedChapterId;
   final TextEditingController keywordCtl;
-  final ValueChanged<String> onExamCategoryChanged;
+  final ValueChanged<String?> onExamCategoryChanged;
   final ValueChanged<int?> onChapterChanged;
   final Future<void> Function() onSearch;
   final Future<void> Function(Map<String, dynamic> data, {int? id}) onSave;
@@ -1399,8 +1400,10 @@ class _QuestionManager extends StatelessWidget {
   Widget build(BuildContext context) {
     final effectiveExamCategory = examCategories.contains(selectedExamCategory)
         ? selectedExamCategory
-        : examCategories.first;
-    final categoryChapters = _chaptersForCategory(effectiveExamCategory);
+        : null;
+    final categoryChapters = effectiveExamCategory == null
+        ? chapters
+        : _chaptersForCategory(effectiveExamCategory);
     final effectiveSelectedChapterId =
         categoryChapters.any((chapter) => chapter.id == selectedChapterId)
             ? selectedChapterId
@@ -1425,9 +1428,9 @@ class _QuestionManager extends StatelessWidget {
                 child: _ExamCategoryTreeSelect(
                   categories: examCategoryTree,
                   value: effectiveExamCategory,
-                  allLabel: '',
+                  allLabel: '全部题库',
                   onChanged: (value) {
-                    if (value != null) onExamCategoryChanged(value);
+                    onExamCategoryChanged(value);
                   },
                 ),
               ),
@@ -1478,22 +1481,12 @@ class _QuestionManager extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _DataHeader(
+          _PaginatedRows<Map<String, dynamic>>(
+            items: questions,
+            emptyText: '暂无题目',
             columns: const ['ID', '考试分类', '章节', '题干', '类型', '难度', '答案', '操作'],
             flexes: const [1, 2, 2, 5, 1, 1, 1, 2],
-          ),
-          if (questions.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 42),
-              child: Center(
-                child: Text(
-                  '暂无题目',
-                  style: TextStyle(color: AppTheme.textSecondary),
-                ),
-              ),
-            ),
-          ...questions.map(
-            (question) => _DataRowCard(
+            rowBuilder: (question) => _DataRowCard(
               cells: [
                 '${question['id']}',
                 _categoryForChapterId(question['chapter_id']) ?? '-',
@@ -1562,14 +1555,18 @@ class _QuestionManager extends StatelessWidget {
 
   void _showQuestionDialog(BuildContext context,
       [Map<String, dynamic>? question]) {
+    final currentCategory = selectedExamCategory;
+    final fallbackExamCategory = examCategories.isNotEmpty
+        ? examCategories.first
+        : AppConstants.examCategories.first;
     final initialExamCategory = question == null
-        ? (examCategories.contains(selectedExamCategory)
-            ? selectedExamCategory
-            : examCategories.first)
+        ? (examCategories.contains(currentCategory)
+            ? currentCategory!
+            : fallbackExamCategory)
         : _categoryForChapterId(question['chapter_id']) ??
-            (examCategories.contains(selectedExamCategory)
-                ? selectedExamCategory
-                : examCategories.first);
+            (examCategories.contains(currentCategory)
+                ? currentCategory!
+                : fallbackExamCategory);
     final categoryChapters = _chaptersForCategory(initialExamCategory);
     if (categoryChapters.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1904,22 +1901,12 @@ class _CourseManager extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _DataHeader(
+          _PaginatedRows<Map<String, dynamic>>(
+            items: courses,
+            emptyText: '暂无课程',
             columns: const ['ID', '课程名称', '类型', '考试', '关联章节', '讲师', '状态', '操作'],
             flexes: const [1, 4, 1, 1, 2, 2, 1, 2],
-          ),
-          if (courses.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 42),
-              child: Center(
-                child: Text(
-                  '暂无课程',
-                  style: TextStyle(color: AppTheme.textSecondary),
-                ),
-              ),
-            ),
-          ...courses.map(
-            (course) => _DataRowCard(
+            rowBuilder: (course) => _DataRowCard(
               cells: [
                 '${course['id']}',
                 course['title'] ?? '',
@@ -2297,22 +2284,12 @@ class _UserManager extends StatelessWidget {
             },
           ),
           const SizedBox(height: 18),
-          if (users.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 42),
-              child: Center(
-                child: Text(
-                  '暂无用户',
-                  style: TextStyle(color: AppTheme.textSecondary),
-                ),
-              ),
-            )
-          else ...[
-            const _DataHeader(
-              columns: ['ID', '手机号', '姓名', '考试类别', '状态', '注册时间', '操作'],
-              flexes: [1, 2, 2, 2, 1, 2, 2],
-            ),
-            ...users.map((user) {
+          _PaginatedRows<Map<String, dynamic>>(
+            items: users,
+            emptyText: '暂无用户',
+            columns: const ['ID', '手机号', '姓名', '考试类别', '状态', '注册时间', '操作'],
+            flexes: const [1, 2, 2, 2, 1, 2, 2],
+            rowBuilder: (user) {
               final active = user['is_active'] == true;
               return _DataRowCard(
                 cells: [
@@ -2361,8 +2338,8 @@ class _UserManager extends StatelessWidget {
                   ),
                 ],
               );
-            }),
-          ],
+            },
+          ),
         ],
       ),
     );
@@ -2989,59 +2966,47 @@ class _ExamCategoryManager extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          if (categories.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 42),
-              child: Center(
-                child: Text(
-                  '暂无考试类别',
-                  style: TextStyle(color: AppTheme.textSecondary),
-                ),
-              ),
-            )
-          else ...[
-            const _DataHeader(
-              columns: ['ID', '层级', '考试类别', '上级', '排序', '状态', '操作'],
-              flexes: [1, 1, 3, 2, 1, 1, 2],
-            ),
-            ...categories.map(
-              (category) {
-                final active = category['is_active'] != false;
-                final name = '${category['name'] ?? ''}';
-                final level = category['level'] ?? 1;
-                return _DataRowCard(
-                  cells: [
-                    '${category['id'] ?? ''}',
-                    _levelLabel(level),
-                    name,
-                    _parentName(category['parent_id']),
-                    '${category['sort_order'] ?? 0}',
-                    active ? '启用' : '停用',
-                  ],
-                  flexes: const [1, 1, 3, 2, 1, 1],
-                  actions: [
-                    IconButton(
-                      tooltip: '编辑类别',
-                      onPressed: () => _showCategoryDialog(context, category),
-                      icon: const Icon(Icons.edit_rounded),
+          _PaginatedRows<Map<String, dynamic>>(
+            items: categories,
+            emptyText: '暂无考试类别',
+            columns: const ['ID', '层级', '考试类别', '上级', '排序', '状态', '操作'],
+            flexes: const [1, 1, 3, 2, 1, 1, 2],
+            rowBuilder: (category) {
+              final active = category['is_active'] != false;
+              final name = '${category['name'] ?? ''}';
+              final level = category['level'] ?? 1;
+              return _DataRowCard(
+                cells: [
+                  '${category['id'] ?? ''}',
+                  _levelLabel(level),
+                  name,
+                  _parentName(category['parent_id']),
+                  '${category['sort_order'] ?? 0}',
+                  active ? '启用' : '停用',
+                ],
+                flexes: const [1, 1, 3, 2, 1, 1],
+                actions: [
+                  IconButton(
+                    tooltip: '编辑类别',
+                    onPressed: () => _showCategoryDialog(context, category),
+                    icon: const Icon(Icons.edit_rounded),
+                  ),
+                  IconButton(
+                    tooltip: name == '执业资格' ? '默认类别不可删除' : '删除类别',
+                    onPressed: name == '执业资格'
+                        ? null
+                        : () => _confirmDeleteCategory(context, category),
+                    icon: Icon(
+                      Icons.delete_outline_rounded,
+                      color: name == '执业资格'
+                          ? AppTheme.textSecondary
+                          : AppTheme.error,
                     ),
-                    IconButton(
-                      tooltip: name == '执业资格' ? '默认类别不可删除' : '删除类别',
-                      onPressed: name == '执业资格'
-                          ? null
-                          : () => _confirmDeleteCategory(context, category),
-                      icon: Icon(
-                        Icons.delete_outline_rounded,
-                        color: name == '执业资格'
-                            ? AppTheme.textSecondary
-                            : AppTheme.error,
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ],
+                  ),
+                ],
+              );
+            },
+          ),
         ],
       ),
     );
@@ -3401,27 +3366,159 @@ class _DashboardManager extends StatelessWidget {
           const Text('章节题量 / 练习热度',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
           const SizedBox(height: 10),
-          if (chapters.isEmpty)
-            const Text('暂无章节数据',
-                style: TextStyle(color: AppTheme.textSecondary))
-          else ...[
-            const _DataHeader(
-              columns: ['章节', '考试类别', '题量', '练习次数'],
-              flexes: [3, 2, 1, 1],
+          _PaginatedRows<Map<String, dynamic>>(
+            items: chapters,
+            emptyText: '暂无章节数据',
+            columns: const ['章节', '考试类别', '题量', '练习次数'],
+            flexes: const [3, 2, 1, 1],
+            rowBuilder: (row) => _DataRowCard(
+              cells: [
+                '${row['name'] ?? '-'}',
+                '${row['exam_category'] ?? '-'}',
+                '${row['question_count'] ?? 0}',
+                '${row['practice_count'] ?? 0}',
+              ],
+              flexes: const [3, 2, 1, 1],
+              actions: const [],
             ),
-            ...chapters.map(
-              (row) => _DataRowCard(
-                cells: [
-                  '${row['name'] ?? '-'}',
-                  '${row['exam_category'] ?? '-'}',
-                  '${row['question_count'] ?? 0}',
-                  '${row['practice_count'] ?? 0}',
-                ],
-                flexes: const [3, 2, 1, 1],
-                actions: const [],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaginatedRows<T> extends StatefulWidget {
+  final List<T> items;
+  final String emptyText;
+  final List<String> columns;
+  final List<int> flexes;
+  final Widget Function(T item) rowBuilder;
+  final int pageSize;
+
+  const _PaginatedRows({
+    required this.items,
+    required this.emptyText,
+    required this.columns,
+    required this.flexes,
+    required this.rowBuilder,
+    this.pageSize = 10,
+  });
+
+  @override
+  State<_PaginatedRows<T>> createState() => _PaginatedRowsState<T>();
+}
+
+class _PaginatedRowsState<T> extends State<_PaginatedRows<T>> {
+  int _page = 0;
+
+  int get _totalPages {
+    if (widget.items.isEmpty) return 1;
+    return ((widget.items.length - 1) ~/ widget.pageSize) + 1;
+  }
+
+  @override
+  void didUpdateWidget(covariant _PaginatedRows<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_page >= _totalPages) {
+      _page = _totalPages - 1;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.items.isEmpty) {
+      return Column(
+        children: [
+          _DataHeader(columns: widget.columns, flexes: widget.flexes),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 42),
+            child: Center(
+              child: Text(
+                widget.emptyText,
+                style: const TextStyle(color: AppTheme.textSecondary),
               ),
             ),
-          ],
+          ),
+        ],
+      );
+    }
+
+    final start = _page * widget.pageSize;
+    final end = (start + widget.pageSize).clamp(0, widget.items.length);
+    final pageItems = widget.items.sublist(start, end);
+
+    return Column(
+      children: [
+        _DataHeader(columns: widget.columns, flexes: widget.flexes),
+        ...pageItems.map(widget.rowBuilder),
+        const SizedBox(height: 10),
+        _PaginationBar(
+          total: widget.items.length,
+          page: _page,
+          totalPages: _totalPages,
+          start: start + 1,
+          end: end,
+          onPrevious: _page == 0 ? null : () => setState(() => _page--),
+          onNext:
+              _page >= _totalPages - 1 ? null : () => setState(() => _page++),
+        ),
+      ],
+    );
+  }
+}
+
+class _PaginationBar extends StatelessWidget {
+  final int total;
+  final int page;
+  final int totalPages;
+  final int start;
+  final int end;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  const _PaginationBar({
+    required this.total,
+    required this.page,
+    required this.totalPages,
+    required this.start,
+    required this.end,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.surface.withOpacity(0.70),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '显示 $start-$end 条，共 $total 条 · 第 ${page + 1}/$totalPages 页',
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: onPrevious,
+            icon: const Icon(Icons.keyboard_arrow_up_rounded, size: 18),
+            label: const Text('上一页'),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            onPressed: onNext,
+            icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
+            label: const Text('下一页'),
+          ),
         ],
       ),
     );

@@ -856,7 +856,7 @@ async def list_questions(
     chapter_id: Optional[int] = None,
     exam_category: Optional[str] = None,
     keyword: Optional[str] = None,
-    limit: int = 100,
+    limit: int = 1000,
     current_admin: AdminUser = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
